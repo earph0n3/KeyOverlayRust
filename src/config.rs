@@ -24,19 +24,14 @@ pub struct Color {
     pub a: u8,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BackgroundMode {
+    #[default]
     Original,
     Stretch,
     Fill,
     Fit,
     Tile,
-}
-
-impl Default for BackgroundMode {
-    fn default() -> Self {
-        Self::Original
-    }
 }
 
 impl BackgroundMode {

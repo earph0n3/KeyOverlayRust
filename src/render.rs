@@ -243,7 +243,7 @@ fn draw_background(pm: &mut Pixmap, image: &Pixmap, mode: BackgroundMode) {
     };
     let mut draw = |x: f32, y: f32, scale_x: f32, scale_y: f32| {
         let transform = Transform::from_translate(x, y).pre_scale(scale_x, scale_y);
-        pm.draw_pixmap(0, 0, image, &paint, transform, None);
+        pm.draw_pixmap(0, 0, image.as_ref(), &paint, transform, None);
     };
 
     match mode {

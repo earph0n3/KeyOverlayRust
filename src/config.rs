@@ -16,6 +16,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::layout;
+
 use crate::lang::Language;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,24 +112,51 @@ impl Config {
         entries
     }
 
-    /// Adds a key with an unused letter as its binding.
+    /// Adds a key with an unused letter as its binding, widening the overlay so
+    /// the keys already there keep their spacing.
     pub fn add_key(&mut self) {
         let candidate = ('A'..='Z')
             .map(|letter| letter.to_string())
             .find(|letter| !self.keys.iter().any(|key| key == letter))
             .unwrap_or_else(|| "A".to_string());
+        let step = self.key_step();
         self.keys.push(candidate);
         self.display_keys.push(String::new());
         self.key_amount += 1;
+        self.window_width = self.window_width.saturating_add(step);
     }
 
-    /// Removes a key, keeping the file consistent.
+    /// Removes a key, keeping the file consistent and giving back the room it
+    /// took up.
     pub fn remove_key(&mut self, index: usize) {
         if index < self.keys.len() {
+            let step = self.key_step();
             self.keys.remove(index);
             self.display_keys.remove(index);
             self.key_amount = self.keys.len() as u32;
+            self.window_width = self
+                .window_width
+                .saturating_sub(step)
+                .max(self.minimum_width());
         }
+    }
+
+    /// Room one key takes at the current spacing.
+    fn key_step(&self) -> u32 {
+        layout::key_step(
+            self.key_amount,
+            self.key_size,
+            self.outline_thickness,
+            self.margin,
+            self.window_width,
+        )
+    }
+
+    /// Width at which the keys sit edge to edge, with no spacing left to give
+    /// back.
+    fn minimum_width(&self) -> u32 {
+        let width = (self.key_size + self.outline_thickness * 2).max(1) as u32;
+        (self.margin.max(0) as u32 * 2).saturating_add(width * self.key_amount)
     }
 }
 
@@ -530,6 +559,52 @@ mod tests {
         assert_eq!(reloaded.extras.len(), 2);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Distance between the first two squares, i.e. what the user sees as the
+    /// gap between keys.
+    fn spacing(config: &Config) -> f32 {
+        let squares = crate::layout::create_squares(
+            config.key_amount,
+            config.outline_thickness,
+            config.key_size,
+            config.margin,
+            config.window_width,
+            1.0,
+        );
+        squares[1].x - squares[0].x
+    }
+
+    #[test]
+    fn add_key_makes_room_instead_of_squeezing() {
+        let mut config = sample();
+        let before = spacing(&config);
+        config.add_key();
+        assert_eq!(config.key_amount, 3);
+        let after = spacing(&config);
+        assert!(
+            (after - before).abs() < 1.5,
+            "keys moved from {before} apart to {after}: the overlay did not grow"
+        );
+    }
+
+    #[test]
+    fn remove_key_gives_the_room_back() {
+        let mut config = sample();
+        config.add_key();
+        let width_before = config.window_width;
+        let spacing_before = spacing(&config);
+        config.remove_key(2);
+        assert_eq!(config.key_amount, 2);
+        assert!(
+            config.window_width < width_before,
+            "window stayed {} wide after a key was removed",
+            config.window_width
+        );
+        assert!(
+            (spacing(&config) - spacing_before).abs() < 1.5,
+            "the keys left behind moved"
+        );
     }
 
     #[test]

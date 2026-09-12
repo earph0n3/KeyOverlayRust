@@ -41,6 +41,28 @@ pub fn text_origin_y(key_size: i32) -> f32 {
     32.0 * key_size as f32 / 140.0
 }
 
+/// Horizontal room one more key needs: a whole key width plus the spacing that
+/// key gets at the current setting. Never less than the key width, so adding a
+/// key makes room instead of squeezing the ones already there.
+pub fn key_step(
+    key_amount: u32,
+    key_size: i32,
+    outline: i32,
+    margin: i32,
+    window_width: u32,
+) -> u32 {
+    let width = key_size as f32 + outline as f32 * 2.0;
+    let step = if key_amount < 2 {
+        // A lone key is centered, so a second one lands a margin away.
+        width + margin as f32
+    } else {
+        let spacing = (window_width as f32 - margin as f32 * 2.0 - width * key_amount as f32)
+            / (key_amount as f32 - 1.0);
+        (width + spacing).max(width)
+    };
+    step.round().max(0.0) as u32
+}
+
 /// Squares are laid out on a 480x960 design canvas; `ratio_y` is `height / 960`.
 pub fn create_squares(
     key_amount: u32,

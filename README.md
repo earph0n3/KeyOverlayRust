@@ -93,6 +93,9 @@ Deliberate differences:
   the file and then crashing on an index error.
 - Missing configuration values and missing background images write
   `errorMessage.txt` naming the offending key or path, then exit.
+- `+ Add key` in the settings window widens `windowWidth` by one key width plus
+  the spacing that key gets, and `x` gives that room back, so adding keys never
+  squeezes the ones already there.
 - The background image is resolved next to the executable, not in the working
   directory.
 - The font is rasterized as-is: SFML additionally emboldens it, so strokes here

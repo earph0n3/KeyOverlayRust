@@ -1,0 +1,63 @@
+# KeyOverlay - Rust build
+#
+# This file is read next to the executable (or from the file name given as the
+# first command line argument). Everything here can also be changed in the
+# settings window: press Ctrl+Alt+K, or click the overlay.
+
+# How many keys, and which ones. Names follow SFML 2.5:
+#   A-Z, Num0-9, F1-F15, Numpad0-9, Escape, LControl, LShift, LAlt, LSystem,
+#   Menu, Space, Enter, Backspace, Tab, PageUp/PageDown, Home/End, Insert,
+#   Delete, Add/Subtract/Multiply/Divide, Left/Right/Up/Down, Tilde, Hyphen,
+#   Equal, LBracket, RBracket, Semicolon, Quote, Slash, Backslash, Comma,
+#   Period, Pause
+# Mouse buttons are written with a leading "m": mLeft, mRight, mMiddle,
+# mXButton1, mXButton2.
+keyAmount=2
+key1=Z
+key2=X
+# displayKeyN overrides what is drawn on the key (empty = use the key name).
+displayKey1=
+displayKey2=
+
+# yes/no - draw a counter under each key
+keyCounter=no
+
+# The layout is designed on a 480x960 canvas; windowWidth/windowHeight are the
+# captured output size in pixels and everything else scales from them.
+windowHeight=700
+windowWidth=240
+keySize=70
+barSpeed=600
+margin=25
+outlineThickness=5
+fading=yes
+
+# r,g,b,a with 0-255 each
+backgroundColor=0,0,0,255
+keyColor=0,0,0,0
+borderColor=255,255,255,255
+barColor=255,255,255,100
+fontColor=255,255,255,255
+pressFontColor=255,255,255,255
+
+# Image file inside Resources/ next to the executable, or empty for none.
+# The image is drawn at its own size in the top left corner.
+backgroundImage=
+
+# 0 = unlimited
+maxFPS=60
+
+# en | zh, empty = follow the Windows UI language
+language=
+# Zoom of the settings window, on top of the display DPI (0.75-2.0)
+uiScale=1.0
+
+# Streaming options (yes/no):
+#   transparentBackground - layered window with real transparency, no chroma
+#                           key needed, drawn without a frame
+#   clickThrough          - the mouse ignores the overlay (implies the layered
+#                           window; use Ctrl+Alt+K to reach the settings)
+#   alwaysOnTop           - keep the overlay above other windows
+transparentBackground=no
+clickThrough=no
+alwaysOnTop=no

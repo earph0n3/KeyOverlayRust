@@ -1,0 +1,31 @@
+[package]
+name = "keyoverlay"
+version = "1.0.0"
+edition = "2024"
+description = "A simple key overlay for osu! streaming (Rust rewrite of KeyOverlay)"
+license = "GPL-3.0-or-later"
+rust-version = "1.88"
+readme = "README.md"
+keywords = ["osu", "overlay", "streaming", "sfml"]
+categories = ["gui"]
+
+[dependencies]
+fontdue = "0.9"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+softbuffer = "0.4"
+tiny-skia = "0.12"
+winit = "0.30"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

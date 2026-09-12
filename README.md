@@ -1,0 +1,103 @@
+# KeyOverlay (Rust)
+
+A key overlay for osu! streaming: shows your press keys and a bar travelling up
+for every hit.
+
+This is a from-scratch **Rust** reimplementation of [Blondazz/KeyOverlay], the
+original SFML/.NET application, and is licensed the same way (GPL-3.0). It is
+Windows only, needs no .NET and no CSFML, and builds to a single executable.
+
+[Blondazz/KeyOverlay]: https://github.com/Blondazz/KeyOverlay
+
+```
+cargo build --release
+target/release/keyoverlay.exe
+```
+
+`config.txt` ships with comments explaining every option, and the same file can
+be edited in the settings window. It is looked up next to the executable first
+(as it is shipped, and as the release archive unpacks it) and then in the working
+directory, so `cargo run` and `target/release/keyoverlay.exe` both find the file
+in the project root. A path given as the first argument is resolved the same way.
+
+## Settings window
+
+`Ctrl+Alt+K` (or clicking the overlay) opens it. Every edit is applied to the
+running overlay immediately; `Save to config.txt` writes the file, `Reload file`
+reads it back, `Esc`/`Close` hides the window. The left pane is a live preview
+with a checkerboard behind it, so a transparent background is visible as such.
+Key bindings are captured by clicking a binding and pressing the key or mouse
+button to use. Config lines this build does not know are preserved on save.
+
+| Section | Controls |
+|---|---|
+| Keys | bindings, display names, add/remove keys |
+| Layout and animation | key size, margin, outline, bar speed, window size, max FPS, key counter |
+| Appearance | fading overlay, and a colour editor (r,g,b,a) for background, key, border, bar, font and pressed font |
+| Window and streaming | transparent background, click-through, always on top, background image |
+| Interface | language and UI scale (lower left) |
+
+### Language
+
+English and Chinese; the button in the top right switches instantly and `Save`
+remembers it (`language=en` / `zh`, empty = follow the Windows UI language).
+
+Chinese needs a CJK face. The bundled Consolas has none, so the UI and the
+overlay fall back to a system font (`msyh.ttc`, then `Deng.ttf`, `simhei.ttf`,
+...). Without any of them the settings window stays in English; Chinese
+`displayKey` text then has no glyphs to draw.
+
+### Size
+
+The window is laid out from one scale factor: a base 1.1 on top of the display's
+DPI, so a 150% display draws 1.65x. `UI scale` multiplies that, relative to the
+display (so the value still makes sense after switching monitors), and is stored
+as `uiScale` (default 1.0, range 0.75-2.0). The window grows and shrinks with its
+content and never grows taller than the monitor's work area.
+
+The overlay window itself stays in real pixels: `windowWidth`/`windowHeight` are
+the captured output size, so the stream keeps exactly the resolution written in
+the configuration instead of a DPI-upscaled, blurry copy.
+
+## Streaming and transparency
+
+The overlay is an ordinary opaque window by default, so the usual setup applies:
+capture it in OBS and chroma key `backgroundColor` out.
+
+Two extra options change that:
+
+| Option | Effect |
+|---|---|
+| `transparentBackground=yes` | Presents through a layered window (`UpdateLayeredWindow`), so the background is really transparent and no chroma key is needed. Works with Display Capture, since the desktop compositor draws it. Whether Window Capture keeps the alpha depends on OBS's capture method. Game Capture only captures the game itself, so no external overlay can be composited into it either way. |
+| `clickThrough=yes` | The mouse ignores the overlay and clicks reach whatever is behind it. Implies the layered window. While it is on, the overlay cannot be clicked to open the settings - use `Ctrl+Alt+K`. |
+| `alwaysOnTop=yes` | Keeps the overlay above other windows, which matters when it is captured as part of the desktop. |
+
+## How it compares to the original
+
+The rendering rules are a 1:1 port of the C# implementation - key geometry on
+the 480x960 canvas, outlines drawn outside the shape, the bar growth and travel
+per frame, the 255-strip fading overlay, SFML's text layout and origin - and the
+configuration file format is the original one, so existing `config.txt` values
+carry over.
+
+Deliberate differences:
+
+- `keyAmount=1` divided by zero in the original (nothing was drawn); the single
+  key is centered here.
+- An invalid key name writes `keyErrorMessage.txt` and exits, instead of writing
+  the file and then crashing on an index error.
+- Missing configuration values and missing background images write
+  `errorMessage.txt` naming the offending key or path, then exit.
+- The background image is resolved next to the executable, not in the working
+  directory.
+- The font is rasterized as-is: SFML additionally emboldens it, so strokes here
+  are about 1px thinner at the default size.
+- Chinese `displayKey` text is drawn (the original had no CJK glyphs at all).
+- Configuration files may contain `#`/`;` comments; the original parser cannot
+  read those, so strip them if you point the C# build at this file.
+
+## Licence
+
+GPL-3.0, see [LICENSE](LICENSE), matching the original project by Blondazz which
+this is derived from. `assets/consolab.ttf` is the same Consolas Bold face the
+original ships.

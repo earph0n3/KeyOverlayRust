@@ -1,5 +1,7 @@
 # KeyOverlay (Rust)
 
+**English** | [简体中文](README.zh-CN.md)
+
 A key overlay for osu! streaming: shows your press keys and a bar travelling up
 for every hit.
 
@@ -8,6 +10,17 @@ original SFML/.NET application, and is licensed the same way (GPL-3.0). It is
 Windows only, needs no .NET and no CSFML, and builds to a single executable.
 
 [Blondazz/KeyOverlay]: https://github.com/Blondazz/KeyOverlay
+
+## Vibe coded
+
+This project is **entirely AI written** ("vibe coding"): the Rust sources, the
+tests, the TOML template, the icon and both READMEs were produced by AI coding
+agents from natural-language prompts. Nobody typed the code by hand; the human
+side was asking for things, running the result and saying what looked wrong.
+
+So read the code before you rely on it for anything serious. It is verified by
+being run - the overlay, the settings window, transparency, the config round trip
+and the CI build are all exercised - but it has not had a human design review.
 
 ```
 cargo build --release
@@ -32,7 +45,7 @@ running overlay immediately; `Save` writes the file, `Reload`
 reads it back, `Esc`/`Close` hides the window. The left pane is a live preview
 with a checkerboard behind it, so a transparent background is visible as such.
 Key bindings are captured by clicking a binding and pressing the key or mouse
-button to use. Config lines this build does not know are preserved on save.
+button to use. Config keys this build does not know are preserved on save.
 
 | Section | Controls |
 |---|---|
@@ -45,7 +58,8 @@ button to use. Config lines this build does not know are preserved on save.
 ### Language
 
 English and Chinese; the button in the top right switches instantly and `Save`
-remembers it (`language=en` / `zh`, empty = follow the Windows UI language).
+remembers it (`language = "en"` / `"zh"`, empty = follow the Windows UI
+language).
 
 Chinese needs a CJK face. The bundled Consolas has none, so the UI and the
 overlay fall back to a system font (`msyh.ttc`, then `Deng.ttf`, `simhei.ttf`,
@@ -137,8 +151,8 @@ Deliberate differences:
 - The font is rasterized as-is: SFML additionally emboldens it, so strokes here
   are about 1px thinner at the default size.
 - Chinese `displayKey` text is drawn (the original had no CJK glyphs at all).
-- Configuration files may contain `#`/`;` comments; the original parser cannot
-  read those, so strip them if you point the C# build at this file.
+- The file may contain `#` comments; the original parser cannot read those, so
+  strip them if you point the C# build at this file.
 
 ## Licence
 

@@ -531,6 +531,37 @@ impl App {
         }
     }
 
+    /// Keyboard input for the settings window: a focused text field takes the
+    /// characters, and Escape leaves the field before it closes the window.
+    fn settings_key(&mut self, event: &winit::event::KeyEvent) {
+        use winit::keyboard::{Key, NamedKey};
+
+        let editing = self.settings.is_editing();
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                if editing {
+                    self.settings.cancel_edit(&self.overlay.config);
+                } else {
+                    self.close_settings();
+                }
+            }
+            Key::Named(NamedKey::Enter) if editing => {
+                if self.settings.commit_edit(&mut self.overlay.config) {
+                    self.apply_config();
+                }
+            }
+            Key::Named(NamedKey::Backspace) if editing => self.settings.edit_backspace(),
+            _ if editing => {
+                if let Some(text) = &event.text {
+                    for ch in text.chars() {
+                        self.settings.edit_char(ch);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn tick(&mut self) {
         if self.settings.capture_tick(&mut self.overlay.config) {
             self.apply_config();
@@ -626,15 +657,10 @@ impl ApplicationHandler<UserEvent> for App {
                         ElementState::Released => self.settings.on_release(cursor.0, cursor.1),
                     }
                 }
-                // Escape closes the window, like any dialog.
                 WindowEvent::KeyboardInput { event, .. }
-                    if event.state == ElementState::Pressed
-                        && matches!(
-                            event.logical_key,
-                            winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape)
-                        ) =>
+                    if event.state == ElementState::Pressed =>
                 {
-                    self.close_settings();
+                    self.settings_key(&event);
                 }
                 _ => {}
             }

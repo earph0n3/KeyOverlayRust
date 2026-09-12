@@ -52,8 +52,10 @@ overlay fall back to a system font (`msyh.ttc`, then `Deng.ttf`, `simhei.ttf`,
 The window is laid out from one scale factor: a base 1.1 on top of the display's
 DPI, so a 150% display draws 1.65x. `UI scale` multiplies that, relative to the
 display (so the value still makes sense after switching monitors), and is stored
-as `uiScale` (default 1.0, range 0.75-2.0). The window grows and shrinks with its
-content and never grows taller than the monitor's work area.
+as `uiScale` (default 1.0, accepted range 0.5-4.0). Type a value into the box and
+press Enter (or click away) to apply it; `Reset` puts it back to 1.00. The window
+grows and shrinks with its content and never grows taller than the monitor's work
+area.
 
 The overlay window itself stays in real pixels: `windowWidth`/`windowHeight` are
 the captured output size, so the stream keeps exactly the resolution written in

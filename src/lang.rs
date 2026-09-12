@@ -67,6 +67,7 @@ pub struct Text {
     pub live_preview: &'static str,
     pub save: &'static str,
     pub reload: &'static str,
+    pub reset: &'static str,
     pub status_applied: &'static str,
     /// One `{}`: the config file name.
     pub status_saved: &'static str,
@@ -114,6 +115,7 @@ pub static EN: Text = Text {
     live_preview: "Live preview",
     save: "Save to config.txt",
     reload: "Reload file",
+    reset: "Reset",
     status_applied: "Applied to the overlay",
     status_saved: "Saved to {}",
     status_reloaded: "Reloaded from disk",
@@ -155,6 +157,7 @@ pub static ZH: Text = Text {
     live_preview: "实时预览",
     save: "保存到 config.txt",
     reload: "重新载入",
+    reset: "重置",
     status_applied: "已应用到悬浮层",
     status_saved: "已保存到 {}",
     status_reloaded: "已从磁盘重新载入",

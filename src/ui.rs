@@ -166,6 +166,8 @@ pub fn theme() -> Theme {
 pub struct Ui {
     /// Layout metrics for the current frame, set by `begin`.
     pub m: Metrics,
+    /// Widget that currently owns keyboard input, if any.
+    pub focused: Option<u64>,
     pub mouse: (f32, f32),
     pub pressed: bool,
     pub released: bool,
@@ -178,6 +180,7 @@ impl Default for Ui {
     fn default() -> Self {
         Self {
             m: Metrics::new(1.0),
+            focused: None,
             mouse: (0.0, 0.0),
             pressed: false,
             released: false,
@@ -409,6 +412,54 @@ pub fn button(
     );
     label_centered(pm, text, rect, m.text, theme().text, painter);
     ui.clicked_in(rect)
+}
+
+/// Single-line text field: clicking inside takes focus, clicking elsewhere
+/// releases it (the caller commits on release). `text` is edited by the caller
+/// through the keyboard events it receives, this only draws and tracks focus.
+pub fn input(
+    ui: &mut Ui,
+    pm: &mut Pixmap,
+    rect: Rect,
+    text: &str,
+    focused: &mut bool,
+    m: Metrics,
+    painter: &mut TextPainter,
+) {
+    let theme = theme();
+    let id = ui.id();
+    if ui.pressed && !rect.contains(ui.mouse) && ui.focused == Some(id) {
+        ui.focused = None;
+    }
+    if ui.clicked_in(rect) {
+        ui.focused = Some(id);
+    }
+    *focused = ui.focused == Some(id);
+
+    panel(
+        pm,
+        rect,
+        if *focused {
+            theme.control_hot
+        } else {
+            theme.control
+        },
+    );
+
+    let (width, height) = painter.measure(text, m.text);
+    let top = rect.y + (rect.h - height) / 2.0;
+    let left = rect.x + m.px(8.0);
+    painter.draw_at(pm, text, left, top, m.text, theme.text);
+    if *focused {
+        fill_rect(
+            pm,
+            (left + width + m.px(2.0)).round(),
+            top,
+            m.px(2.0).max(1.0),
+            height,
+            theme.accent,
+        );
+    }
 }
 
 pub fn toggle(

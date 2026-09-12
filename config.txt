@@ -49,7 +49,7 @@ maxFPS=60
 
 # en | zh, empty = follow the Windows UI language
 language=
-# Zoom of the settings window, on top of the display DPI (0.75-2.0)
+# Zoom of the settings window, on top of the display DPI (0.5-4.0)
 uiScale=1.0
 
 # Streaming options (yes/no):

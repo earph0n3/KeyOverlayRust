@@ -48,6 +48,12 @@ pub struct Settings {
     color_tab: usize,
     /// Effective UI scale (display DPI times the user's zoom).
     scale: f32,
+    /// Text shown in the UI scale field, and whether it is being edited.
+    scale_text: String,
+    scale_editing: bool,
+    /// True until the first keystroke, so typing replaces the value instead of
+    /// appending to it.
+    scale_fresh: bool,
     capture: Option<usize>,
     capture_armed: bool,
     candidates: Vec<(&'static str, u32)>,
@@ -61,6 +67,9 @@ impl Settings {
             ui: Ui::default(),
             painter: fonts.painter()?,
             scale: 1.0,
+            scale_text: String::new(),
+            scale_editing: false,
+            scale_fresh: false,
             color_tab: 0,
             capture: None,
             capture_armed: true,
@@ -92,6 +101,64 @@ impl Settings {
 
     pub fn set_scale(&mut self, scale: f32) {
         self.scale = scale.clamp(0.5, 4.0);
+    }
+
+    /// True while the UI scale field owns the keyboard.
+    pub fn is_editing(&self) -> bool {
+        self.scale_editing
+    }
+
+    pub fn edit_char(&mut self, ch: char) {
+        if !self.scale_editing {
+            return;
+        }
+        let ch = if ch == ',' { '.' } else { ch };
+        if !(ch.is_ascii_digit() || ch == '.') || self.scale_text.len() >= 6 {
+            return;
+        }
+        if self.scale_fresh {
+            self.scale_text.clear();
+            self.scale_fresh = false;
+        }
+        self.scale_text.push(ch);
+    }
+
+    pub fn edit_backspace(&mut self) {
+        if self.scale_editing {
+            self.scale_fresh = false;
+            self.scale_text.pop();
+        }
+    }
+
+    /// Abandons the edit, restoring the value in use.
+    pub fn cancel_edit(&mut self, config: &Config) {
+        if self.scale_editing {
+            self.scale_editing = false;
+            self.scale_text = format!("{:.2}", config.ui_scale);
+        }
+    }
+
+    /// Applies the typed value, clamped to the range the configuration accepts.
+    pub fn commit_edit(&mut self, config: &mut Config) -> bool {
+        self.scale_editing = false;
+        let parsed = self
+            .scale_text
+            .replace(',', ".")
+            .parse::<f32>()
+            .ok()
+            .map(|value| value.clamp(0.5, 4.0));
+        match parsed {
+            Some(value) => {
+                let changed = (value - config.ui_scale).abs() > 0.005;
+                config.ui_scale = value;
+                self.scale_text = format!("{value:.2}");
+                changed
+            }
+            None => {
+                self.scale_text = format!("{:.2}", config.ui_scale);
+                false
+            }
+        }
     }
 
     pub fn on_cursor(&mut self, x: f32, y: f32) {
@@ -213,7 +280,7 @@ impl Settings {
             m.px(16.0),
             m.px(70.0),
             m.px(268.0),
-            (height - m.px(266.0)).max(m.px(120.0)),
+            (height - m.px(242.0)).max(m.px(120.0)),
         );
         ui::panel(pm, preview_rect, theme.panel);
         ui::label(
@@ -225,7 +292,7 @@ impl Settings {
                 m.px(160.0),
                 m.px(18.0),
             ),
-            ui::TEXT_SMALL,
+            m.small,
             theme.text_dim,
             &mut self.painter,
         );
@@ -241,12 +308,14 @@ impl Settings {
             m,
         );
 
-        let actions_y = preview_rect.bottom() + m.px(14.0);
+        // Actions, the status line and the interface rows are stacked with a
+        // cursor, so a row can never drift into the next one.
+        let mut y = preview_rect.bottom() + m.px(14.0);
         if ui::button(
             &mut self.ui,
             pm,
             t.save,
-            Rect::new(m.px(16.0), actions_y, m.px(162.0), m.px(30.0)),
+            Rect::new(m.px(16.0), y, m.px(162.0), m.px(30.0)),
             &mut self.painter,
         ) {
             outcome.save = true;
@@ -255,80 +324,95 @@ impl Settings {
             &mut self.ui,
             pm,
             t.reload,
-            Rect::new(m.px(186.0), actions_y, m.px(98.0), m.px(30.0)),
+            Rect::new(m.px(186.0), y, m.px(98.0), m.px(30.0)),
             &mut self.painter,
         ) {
             outcome.reload = true;
         }
+        y += m.px(38.0);
+
+        // The status row keeps its space, so the message cannot land on the
+        // rows below it while it is showing.
+        let status_row = Rect::new(m.px(16.0), y, m.px(268.0), m.px(20.0));
         if let Some((text, at)) = &self.status
             && at.elapsed().as_secs() < 5
         {
             ui::label(
                 pm,
                 text,
-                Rect::new(m.px(16.0), actions_y + m.px(34.0), m.px(268.0), m.px(20.0)),
+                status_row,
                 m.small,
                 theme.accent,
                 &mut self.painter,
             );
         }
+        y += m.px(30.0);
 
-        // Interface rows live here rather than in the right column, so the
-        // right column's height does not grow with them.
-        let interface_top = actions_y + m.px(58.0);
         ui::label(
             pm,
             t.section_interface,
-            Rect::new(
-                m.px(16.0),
-                interface_top - m.px(22.0),
-                m.px(268.0),
-                m.px(20.0),
-            ),
+            Rect::new(m.px(16.0), y, m.px(268.0), m.px(18.0)),
             m.small,
             theme.text_dim,
             &mut self.painter,
         );
-        let mut current = config.ui_scale;
-        let mut scale_changed = float_slider(
-            &mut self.ui,
-            pm,
-            &mut self.painter,
-            t.ui_scale,
-            Rect::new(m.px(16.0), interface_top, m.px(268.0), m.row),
-            &mut current,
-            0.75,
-            2.0,
-            0.05,
-        );
-        if scale_changed {
-            config.ui_scale = current;
-        }
-        let hint_rect = Rect::new(m.px(16.0), interface_top + m.row, m.px(268.0), m.row);
+        y += m.px(24.0);
+
+        let row = Rect::new(m.px(16.0), y, m.px(268.0), m.row);
         ui::label(
             pm,
-            t.ui_scale_hint,
-            hint_rect,
-            m.small,
+            t.ui_scale,
+            Rect::new(row.x, row.y, m.px(100.0), row.h),
+            m.text,
             theme.text_dim,
             &mut self.painter,
         );
+        let editing_before = self.scale_editing;
+        if self.scale_text.is_empty() {
+            self.scale_text = format!("{:.2}", config.ui_scale);
+        }
+        let mut focused = self.scale_editing;
+        ui::input(
+            &mut self.ui,
+            pm,
+            Rect::new(row.x + m.px(104.0), row.y, m.px(84.0), row.h),
+            &self.scale_text,
+            &mut focused,
+            m,
+            &mut self.painter,
+        );
+        if focused && !editing_before {
+            // clicked in: show the value in use, replaced by the first keystroke
+            self.scale_text = format!("{:.2}", config.ui_scale);
+            self.scale_fresh = true;
+        }
+        self.scale_editing = focused;
+        if editing_before && !focused {
+            // clicked away: keep what was typed, if it parses
+            outcome.changed |= self.commit_edit(config);
+        }
         if ui::button(
             &mut self.ui,
             pm,
-            "Reset",
-            Rect::new(
-                hint_rect.right() - m.px(70.0),
-                hint_rect.y,
-                m.px(70.0),
-                m.row,
-            ),
+            t.reset,
+            Rect::new(row.right() - m.px(70.0), row.y, m.px(70.0), row.h),
             &mut self.painter,
         ) {
             config.ui_scale = 1.0;
-            scale_changed = true;
+            self.scale_text = "1.00".to_string();
+            self.scale_editing = false;
+            outcome.changed = true;
         }
-        outcome.changed |= scale_changed;
+        y = row.bottom() + m.px(6.0);
+
+        ui::label(
+            pm,
+            t.ui_scale_hint,
+            Rect::new(m.px(16.0), y, m.px(268.0), m.px(20.0)),
+            m.small,
+            theme.text_dim,
+            &mut self.painter,
+        );
 
         // Right column: sections.
         let mut y = m.px(52.0);

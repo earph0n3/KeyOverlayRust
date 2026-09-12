@@ -198,13 +198,7 @@ pub static ZH: Text = Text {
     always_on_top: "窗口置顶",
     background_image: "背景图",
     background_mode: "背景图显示方式",
-    background_modes: [
-        "原始尺寸",
-        "拉伸",
-        "填充（裁剪）",
-        "适应（留边）",
-        "平铺",
-    ],
+    background_modes: ["原始尺寸", "拉伸", "填充（裁剪）", "适应（留边）", "平铺"],
     none: "(无)",
     missing_suffix: "（缺失）",
 };

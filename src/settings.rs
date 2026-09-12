@@ -925,12 +925,7 @@ impl Settings {
 
         if self.background_menu_open {
             for name in &image_names {
-                let item = Rect::new(
-                    image_button.x,
-                    y,
-                    image_button.w,
-                    m.row,
-                );
+                let item = Rect::new(image_button.x, y, image_button.w, m.row);
                 let label = if name.is_empty() {
                     t.none.to_string()
                 } else if missing_image && name == &config.background_image {
@@ -939,14 +934,7 @@ impl Settings {
                     name.clone()
                 };
                 let selected = name == &config.background_image;
-                if ui::list_item(
-                    &mut self.ui,
-                    pm,
-                    &label,
-                    item,
-                    selected,
-                    &mut self.painter,
-                ) {
+                if ui::list_item(&mut self.ui, pm, &label, item, selected, &mut self.painter) {
                     config.background_image = name.clone();
                     self.background_menu_open = false;
                     changed = true;
@@ -971,13 +959,7 @@ impl Settings {
             mode_row.h,
         );
         let mode_label = t.background_modes[config.background_mode.index()];
-        if ui::button(
-            &mut self.ui,
-            pm,
-            mode_label,
-            mode_button,
-            &mut self.painter,
-        ) {
+        if ui::button(&mut self.ui, pm, mode_label, mode_button, &mut self.painter) {
             self.background_mode_menu_open = !self.background_mode_menu_open;
             self.background_menu_open = false;
         }

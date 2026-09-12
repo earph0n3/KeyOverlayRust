@@ -420,7 +420,6 @@ impl App {
             self.settings_pixmap = Pixmap::new(size.width, size.height);
             // So a key label can be typed with an input method, not just ASCII.
             window.set_ime_allowed(true);
-            self.settings.rescan(&self.executable_dir.join("Resources"));
             center_on_screen(&window);
             self.settings_scale = ui_scale(&self.overlay.config, window.scale_factor() as f32);
             self.settings.set_scale(self.settings_scale);
@@ -428,6 +427,7 @@ impl App {
             self.settings_context = Some(context);
             self.settings_surface = Some(surface);
         }
+        self.settings.rescan(&self.executable_dir.join("Resources"));
 
         self.settings_open = true;
         if let Some(window) = &self.settings_window {

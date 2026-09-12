@@ -69,7 +69,9 @@ impl Presenter {
     pub fn set_layered(&mut self, layered: bool) -> Result<(), String> {
         let layered = layered || self.click_through;
         if layered == self.layered_mode && (!layered || self.layered.is_some()) {
-            return Ok(());
+            // winit rewrites the extended styles when decorations change.
+            // Reapply ours even when the presentation mode itself is unchanged.
+            return self.apply_styles();
         }
         self.layered_mode = layered;
         if layered {

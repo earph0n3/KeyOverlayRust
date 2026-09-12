@@ -10,7 +10,7 @@
 [English](README.md)
 
 > 仅支持 Windows。本项目是 [Blondazz/KeyOverlay](https://github.com/Blondazz/KeyOverlay)
-> 的 Rust 重写版，使用 TOML 配置文件，并提供内置设置窗口。
+> 的 Rust 重写版，使用 TOML 预设，并提供内置设置窗口。
 
 ## 功能
 
@@ -21,8 +21,8 @@
 - 真透明分层窗口、鼠标穿透和窗口置顶。
 - 自定义按键显示名、RGBA 颜色、窗口尺寸、边距、动画速度和帧率。
 - 中英文界面，以及适配 DPI 的界面缩放。
-- 单文件可执行程序：字体、图标和首次运行配置模板都已编译进程序。
-- 保存配置时保留注释，以及当前版本不认识的配置项。
+- 单文件可执行程序：字体、图标和首次运行预设模板都已编译进程序。
+- 所有预设都放在 `presets/*.toml`；保存时保留注释和当前版本不认识的配置项。
 
 ## 环境要求
 
@@ -46,17 +46,18 @@ cargo build --release --locked
 cargo run --locked
 ```
 
-Release 可执行文件位于 `target/release/keyoverlay.exe`。如果找不到配置文件，程序会把带完整
-注释的 `config.toml` 和空的 `Resources/` 目录写到可执行文件旁边，然后用其中的默认值启动。
+Release 可执行文件位于 `target/release/keyoverlay.exe`。首次运行时，程序会在可执行文件旁边
+创建 `presets/` 和 `Resources/`，把内置模板写入 `presets/default.toml`，然后使用该预设启动。
 
-如果要使用其他配置文件，把文件名或路径作为第一个参数传入：
+如果要使用其他预设，请把名为 `xxx.toml` 的文件放进 `presets/`，再把文件名作为第一个参数：
 
 ```powershell
-.\target\release\keyoverlay.exe .\profiles\mania.toml
+.\target\release\keyoverlay.exe mania.toml
 ```
 
-配置查找顺序是：先检查可执行文件所在目录，再检查当前工作目录。因此相对路径既适合
-打包后的程序，也适合源码目录运行。
+设置窗口也会列出 `presets/` 中的所有 `*.toml` 文件；当前没有未保存修改时，选择后立即载入。
+如果当前预设有未保存修改，切换前会询问保存、放弃或取消。首次创建预设目录时如果发现旧的根目录
+`config.toml`，程序会先把它迁移为 `presets/default.toml`。
 
 ## 设置悬浮层
 
@@ -67,16 +68,22 @@ Release 可执行文件位于 `target/release/keyoverlay.exe`。如果找不到�
 | 绑定按键 | 点击绑定项，再按下键盘键或鼠标键。 |
 | 编辑显示名 | 在绑定右侧的显示名输入框中输入；留空则使用按键原名。 |
 | 应用修改 | 悬浮层和预览会立即更新。 |
-| 保存 / 重新载入 | `Save` 写入 TOML；`Reload` 从磁盘重新读取。 |
-| 关闭 | `Esc` 或 `Close` 隐藏设置窗口。 |
+| 选择预设 | 选择已保存的 `*.toml`；有未保存修改时会先提示。 |
+| 新建预设 | 点击“新建”，输入名称后点击“创建”；未填写 `.toml` 时会自动补上。 |
+| 删除预设 | 点击“删除”移除当前自定义预设；`default.toml` 受到保护。 |
+| 保存 / 重新载入 | “保存预设”写入当前预设；“重新载入”从磁盘重新读取。 |
+| 关闭 | `Esc` 或“关闭”隐藏设置窗口。 |
 | 移动悬浮层 | 按住并拖动悬浮层；按下但不移动则打开设置。 |
 
 开启 `click_through = true` 后，悬浮层完全收不到鼠标输入。此时请用快捷键打开设置，
-并在 `config.toml` 中调整位置。
+并在当前预设中调整位置。
 
-## 配置文件
+## 预设
 
-`config.toml` 是带注释的完整模板，包含所有支持的配置项。常用字段如下：
+`presets/default.toml` 是包含所有支持配置项的带注释模板。每个预设都是 `presets/` 内名为
+`xxx.toml` 的文件。设置窗口可以用“新建”把当前实时配置保存为新预设；“删除”会移除当前选中的自定义预设。
+“保存预设”会写入当前选中的文件。
+常用字段如下：
 
 ```toml
 keys = ["Z", "X", "mLeft"]
@@ -111,8 +118,6 @@ ui_scale = 1.0
 一一对应的可选显示名列表；某项留空就使用按键原名。颜色格式为 `#RRGGBB` 或
 `#RRGGBBAA`。
 
-原 C# 版本的 `config.txt` 与这个重写版不兼容，请从仓库里的 `config.toml` 模板开始。
-在设置窗口中保存时，文件里的注释和未知 TOML 配置项会保留。
 
 `background_mode` 控制背景图的显示方式：
 

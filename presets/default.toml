@@ -1,7 +1,7 @@
 # KeyOverlay - Rust build
 #
-# This file is yours to edit; the settings window (Ctrl+Alt+K) writes the same
-# values back and keeps every comment here.
+# This file is yours to edit; the settings window (Ctrl+Alt+K) writes the
+# selected preset back and keeps every comment here.
 #
 # keys   - the keys to watch. A key name is a letter, a digit, F1-F24, a name
 #          like Space/Tab/LShift/LControl, or a mouse button

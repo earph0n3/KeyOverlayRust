@@ -1,9 +1,9 @@
-//! `config.toml` parsing and writing.
+//! Preset TOML parsing and writing.
 //!
-//! The file is TOML: real comments, real booleans and one array per list of
-//! keys, so it reads the way it is meant to be edited by hand. Saving edits the
-//! parsed document in place, which keeps every comment and any key this build
-//! does not know about.
+//! Presets live in the `presets/` directory. The file is TOML: real comments,
+//! real booleans and one array per list of keys, so it reads the way it is
+//! meant to be edited by hand. Saving edits the parsed document in place,
+//! which keeps every comment and any key this build does not know about.
 
 use std::path::{Path, PathBuf};
 
@@ -13,8 +13,10 @@ use crate::lang::Language;
 use crate::layout;
 
 /// The commented template that ships inside the executable, so a lone
-/// `keyoverlay.exe` can create its own configuration on first run.
-const TEMPLATE: &str = include_str!("../config.toml");
+/// `keyoverlay.exe` can create its own preset on first run.
+const TEMPLATE: &str = include_str!("../presets/default.toml");
+pub const DEFAULT_PRESET: &str = "default.toml";
+const PRESETS_DIR: &str = "presets";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
@@ -156,15 +158,41 @@ impl Config {
     }
 }
 
+pub fn ensure_presets(dir: &Path) -> Result<(), String> {
+    let presets = dir.join(PRESETS_DIR);
+    std::fs::create_dir_all(&presets)
+        .map_err(|error| format!("Could not create {}: {error}", presets.display()))?;
+
+    let default = presets.join(DEFAULT_PRESET);
+    if !default.is_file() {
+        let legacy = [dir.join("config.toml"), PathBuf::from("config.toml")]
+            .into_iter()
+            .find(|path| path.is_file());
+        if let Some(legacy) = legacy {
+            std::fs::copy(&legacy, &default).map_err(|error| {
+                format!(
+                    "Could not migrate {} to {}: {error}",
+                    legacy.display(),
+                    default.display()
+                )
+            })?;
+        } else {
+            std::fs::write(&default, TEMPLATE)
+                .map_err(|error| format!("Could not write {}: {error}", default.display()))?;
+        }
+    }
+    Ok(())
+}
+
 pub fn ensure_resources(dir: &Path) -> Result<(), String> {
     let resources = dir.join("Resources");
     std::fs::create_dir_all(&resources)
         .map_err(|error| format!("Could not create {}: {error}", resources.display()))
 }
-
 pub fn load(dir: &Path, file_name: &str) -> Result<Config, String> {
+    ensure_presets(dir)?;
     ensure_resources(dir)?;
-    let path = resolve(dir, file_name);
+    let path = resolve(dir, file_name)?;
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         // First run, or the file was deleted: leave the template behind so
@@ -176,6 +204,7 @@ pub fn load(dir: &Path, file_name: &str) -> Result<Config, String> {
         }
         Err(error) => return Err(format!("Could not read {}: {error}", path.display())),
     };
+
     // A file saved by a Windows editor may carry a BOM.
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
     let document = text
@@ -252,7 +281,8 @@ pub fn load(dir: &Path, file_name: &str) -> Result<Config, String> {
 }
 
 pub fn save(dir: &Path, file_name: &str, config: &Config) -> Result<(), String> {
-    let path = resolve(dir, file_name);
+    ensure_presets(dir)?;
+    let path = resolve(dir, file_name)?;
     // Saving into the template keeps every comment when the file is gone.
     let existing = std::fs::read_to_string(&path).unwrap_or_else(|_| TEMPLATE.to_string());
     let mut document = existing
@@ -323,6 +353,27 @@ pub fn save(dir: &Path, file_name: &str, config: &Config) -> Result<(), String> 
     std::fs::write(&path, document.to_string())
         .map_err(|e| format!("Could not write {}: {e}", path.display()))
 }
+pub fn create(dir: &Path, name: &str, config: &Config) -> Result<String, String> {
+    let file_name = normalize_preset_name(name)?;
+    ensure_presets(dir)?;
+    let path = resolve(dir, &file_name)?;
+    if path.exists() {
+        return Err(format!("Preset already exists: {}", path.display()));
+    }
+    save(dir, &file_name, config)?;
+    Ok(file_name)
+}
+
+pub fn delete(dir: &Path, file_name: &str) -> Result<(), String> {
+    let file_name = normalize_preset_name(file_name)?;
+    if file_name == DEFAULT_PRESET {
+        return Err("The default preset cannot be deleted".to_string());
+    }
+    ensure_presets(dir)?;
+    let path = resolve(dir, &file_name)?;
+    std::fs::remove_file(&path)
+        .map_err(|error| format!("Could not delete {}: {error}", path.display()))
+}
 
 /// Replaces a value while keeping the comments around it: the key's own decor
 /// (the lines above) and the value's (a trailing comment on the same line).
@@ -348,18 +399,79 @@ fn strings(values: &[String]) -> Item {
     value(array)
 }
 
-/// Where the configuration lives: next to the executable as shipped, or - for
-/// `cargo run` and the like - in the working directory.
-fn resolve(dir: &Path, file_name: &str) -> PathBuf {
-    let next_to_executable = dir.join(file_name);
-    if next_to_executable.is_file() {
-        return next_to_executable;
+pub fn list_presets(dir: &Path) -> Result<Vec<String>, String> {
+    ensure_presets(dir)?;
+    let presets = dir.join(PRESETS_DIR);
+    let mut names = std::fs::read_dir(&presets)
+        .map_err(|error| format!("Could not read {}: {error}", presets.display()))?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let file_type = entry.file_type().ok()?;
+            if !file_type.is_file() {
+                return None;
+            }
+            let path = entry.path();
+            let extension = path.extension()?.to_str()?;
+            if !extension.eq_ignore_ascii_case("toml") {
+                return None;
+            }
+            Some(path.file_name()?.to_string_lossy().into_owned())
+        })
+        .collect::<Vec<_>>();
+    names.sort_by(|left, right| {
+        (left != DEFAULT_PRESET)
+            .cmp(&(right != DEFAULT_PRESET))
+            .then_with(|| left.cmp(right))
+    });
+    Ok(names)
+}
+
+fn valid_preset_file_name(file_name: &str) -> bool {
+    let candidate = Path::new(file_name);
+    let is_file_name = candidate.file_name().and_then(|name| name.to_str()) == Some(file_name);
+    let is_toml = candidate
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("toml"));
+    let has_stem = candidate
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| !stem.is_empty());
+    let has_invalid_character = file_name.chars().any(|character| {
+        character.is_control()
+            || matches!(
+                character,
+                '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+            )
+    });
+    let has_windows_trailing_space = file_name.ends_with(' ') || file_name.ends_with('.');
+    is_file_name && is_toml && has_stem && !has_invalid_character && !has_windows_trailing_space
+}
+
+pub fn normalize_preset_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Preset name cannot be empty".to_string());
     }
-    let in_working_directory = PathBuf::from(file_name);
-    if in_working_directory.is_file() {
-        return in_working_directory;
+    let file_name = if name.to_ascii_lowercase().ends_with(".toml") {
+        name.to_string()
+    } else {
+        format!("{name}.toml")
+    };
+    if !valid_preset_file_name(&file_name) {
+        return Err("Preset name must be a valid .toml file name".to_string());
     }
-    next_to_executable
+    Ok(file_name)
+}
+
+/// Presets are file names, never paths, and always use the `.toml` extension.
+fn resolve(dir: &Path, file_name: &str) -> Result<PathBuf, String> {
+    if !valid_preset_file_name(file_name) {
+        return Err(format!(
+            "Preset name must be a .toml file name: {file_name}"
+        ));
+    }
+    Ok(dir.join(PRESETS_DIR).join(file_name))
 }
 
 fn uint(document: &DocumentMut, name: &str, path: &Path) -> Result<u32, String> {
@@ -534,10 +646,10 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_config_is_created_from_the_shipped_template() {
+    fn a_missing_preset_is_created_from_the_shipped_template() {
         let dir = scratch("first-run");
         // A name that cannot exist in the working directory, so the lookup
-        // lands on the path next to the executable.
+        // lands on the preset path next to the executable.
         let file = format!("first-run-{}.toml", std::process::id());
 
         let config = load(&dir, &file).unwrap();
@@ -545,8 +657,16 @@ mod tests {
             dir.join("Resources").is_dir(),
             "first run must create the Resources directory"
         );
+        assert!(
+            dir.join("presets").is_dir(),
+            "first run must create the presets directory"
+        );
+        assert!(
+            dir.join("presets").join(DEFAULT_PRESET).is_file(),
+            "first run must create default.toml"
+        );
 
-        let written = std::fs::read_to_string(dir.join(&file)).unwrap();
+        let written = std::fs::read_to_string(dir.join("presets").join(&file)).unwrap();
         assert!(
             written.lines().any(|line| line.starts_with('#')),
             "the file created on first run has nothing to explain it: {written}"
@@ -561,14 +681,80 @@ mod tests {
     }
 
     #[test]
+    fn legacy_config_is_migrated_to_default_preset() {
+        let dir = scratch("legacy-migration");
+        let legacy = TEMPLATE.replace("window_width = 240", "window_width = 333");
+        std::fs::write(dir.join("config.toml"), &legacy).unwrap();
+
+        let config = load(&dir, DEFAULT_PRESET).unwrap();
+
+        assert_eq!(config.window_width, 333);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("presets").join(DEFAULT_PRESET)).unwrap(),
+            legacy
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn preset_names_cannot_escape_the_presets_directory() {
+        let dir = scratch("preset-name");
+
+        assert!(load(&dir, "../outside.toml").is_err());
+        assert!(load(&dir, "not-a-preset.txt").is_err());
+        assert!(!dir.join("outside.toml").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preset_listing_only_returns_toml_files_with_default_first() {
+        let dir = scratch("list-presets");
+        ensure_presets(&dir).unwrap();
+        std::fs::write(dir.join("presets").join("mania.toml"), TEMPLATE).unwrap();
+        std::fs::write(dir.join("presets").join("notes.txt"), "ignore").unwrap();
+        std::fs::create_dir(dir.join("presets").join("nested.toml")).unwrap();
+
+        assert_eq!(
+            list_presets(&dir).unwrap(),
+            vec!["default.toml".to_string(), "mania.toml".to_string()]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn presets_can_be_created_with_a_normalized_name_and_deleted() {
+        let dir = scratch("create-delete");
+        let config = sample();
+
+        let created = create(&dir, "raid", &config).unwrap();
+        assert_eq!(created, "raid.toml");
+        assert_eq!(load(&dir, &created).unwrap().keys, config.keys);
+        assert!(create(&dir, "raid.toml", &config).is_err());
+        assert!(delete(&dir, &created).is_ok());
+        assert!(!dir.join("presets").join(&created).exists());
+        assert!(delete(&dir, DEFAULT_PRESET).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preset_name_normalization_rejects_paths_and_empty_names() {
+        assert_eq!(normalize_preset_name("  raid  ").unwrap(), "raid.toml");
+        assert_eq!(normalize_preset_name("raid.TOML").unwrap(), "raid.TOML");
+        assert!(normalize_preset_name("").is_err());
+        assert!(normalize_preset_name("../raid").is_err());
+        assert!(normalize_preset_name("raid?.toml").is_err());
+    }
+
+    #[test]
     fn background_mode_defaults_for_old_files_and_round_trips() {
         let dir = scratch("background-mode");
-        let file = "config.toml";
+        let file = "background.toml";
+        ensure_presets(&dir).unwrap();
         let old_template = TEMPLATE.replace(
             "background_mode = \"original\" # original, stretch, fill, fit, or tile\n",
             "",
         );
-        std::fs::write(dir.join(file), old_template).unwrap();
+        std::fs::write(dir.join("presets").join(file), old_template).unwrap();
 
         let old_config = load(&dir, file).unwrap();
         assert_eq!(old_config.background_mode, BackgroundMode::Original);
@@ -585,14 +771,15 @@ mod tests {
     #[test]
     fn save_keeps_comments_and_unknown_keys() {
         let dir = scratch("save-comments");
-        let file = "config.toml";
+        let file = "comments.toml";
+        ensure_presets(&dir).unwrap();
         let mut document = TEMPLATE.to_string();
         document.push_str("\n# a newer build wrote this\nfuture_option = 42\n");
-        std::fs::write(dir.join(file), &document).unwrap();
+        std::fs::write(dir.join("presets").join(file), &document).unwrap();
 
         save(&dir, file, &sample()).unwrap();
 
-        let written = std::fs::read_to_string(dir.join(file)).unwrap();
+        let written = std::fs::read_to_string(dir.join("presets").join(file)).unwrap();
         assert!(
             written.contains("# distance from the window edge"),
             "the template's comments must survive: {written}"
@@ -618,7 +805,10 @@ mod tests {
 
         // a second save is a no-op, so the file stays stable
         save(&dir, file, &reloaded).unwrap();
-        assert_eq!(std::fs::read_to_string(dir.join(file)).unwrap(), written);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("presets").join(file)).unwrap(),
+            written
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -626,12 +816,13 @@ mod tests {
     #[test]
     fn a_key_with_a_custom_label_loads() {
         let dir = scratch("labels");
-        let file = "config.toml";
+        let file = "labels.toml";
+        ensure_presets(&dir).unwrap();
         let text = TEMPLATE.replace(
             "keys = [\"Z\", \"X\"]\ndisplay_keys = [\"\", \"\"]",
             &format!("keys = [\"Z,{CJK_LABEL}\", \"MouseLeft\"]\ndisplay_keys = [\"\", \"click\"]"),
         );
-        std::fs::write(dir.join(file), text).unwrap();
+        std::fs::write(dir.join("presets").join(file), text).unwrap();
 
         let config = load(&dir, file).unwrap();
         assert_eq!(config.keys.len(), 2);
@@ -644,12 +835,13 @@ mod tests {
     #[test]
     fn a_colour_must_be_hex() {
         let dir = scratch("colour");
-        let file = "config.toml";
+        let file = "colour.toml";
+        ensure_presets(&dir).unwrap();
         let text = TEMPLATE.replace(
             "background_color = \"#000000FF\"",
             "background_color = \"black\"",
         );
-        std::fs::write(dir.join(file), text).unwrap();
+        std::fs::write(dir.join("presets").join(file), text).unwrap();
 
         let Err(error) = load(&dir, file) else {
             panic!("a colour that is not hex should be rejected");

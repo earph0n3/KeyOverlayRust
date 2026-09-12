@@ -12,8 +12,8 @@ input display.
 [简体中文](README.zh-CN.md)
 
 > Windows only. This project is a Rust rewrite of
-> [Blondazz/KeyOverlay](https://github.com/Blondazz/KeyOverlay), with a TOML
-> configuration file and a built-in settings window.
+> [Blondazz/KeyOverlay](https://github.com/Blondazz/KeyOverlay), with TOML
+> presets and a built-in settings window.
 
 ## Highlights
 
@@ -26,9 +26,10 @@ input display.
 - Custom key labels, RGBA colors, window dimensions, margins, animation speed,
   and frame-rate control.
 - English and Chinese interface, with DPI-aware UI scaling.
-- Self-contained executable: the font, icon, and first-run configuration
-  template are embedded in the binary.
-- Configuration saves preserve comments and options unknown to this build.
+- Self-contained executable: the font, icon, and first-run preset template
+  are embedded in the binary.
+- Presets live in `presets/*.toml`; saves preserve comments and options
+  unknown to this build.
 
 ## Requirements
 
@@ -53,20 +54,22 @@ For development, run the debug build from the repository root:
 cargo run --locked
 ```
 
-The release executable is `target/release/keyoverlay.exe`. If no configuration
-file exists, the program creates a commented `config.toml` and an empty
-`Resources/` directory beside the executable, then starts with the documented
-defaults.
+The release executable is `target/release/keyoverlay.exe`. On first run, the
+program creates `presets/` and `Resources/` beside the executable, writes the
+embedded template as `presets/default.toml`, and starts with that preset.
 
-To use another configuration file, pass its name or path as the first argument:
+To use another preset, put a file named `xxx.toml` in `presets/`, then pass its
+file name as the first argument:
 
 ```powershell
-.\target\release\keyoverlay.exe .\profiles\mania.toml
+.\target\release\keyoverlay.exe mania.toml
 ```
 
-Configuration lookup checks the executable directory first, then the current
-working directory. A relative path is therefore convenient for both a packaged
-copy and a source checkout.
+The settings window lists every `*.toml` file in `presets/`; selecting one loads
+it immediately when there are no unsaved edits. If the current preset has
+unsaved changes, the window asks whether to save, discard, or cancel before
+switching. An old root-level `config.toml` is migrated to
+`presets/default.toml` when the preset directory is first created.
 
 ## Configure the overlay
 
@@ -78,17 +81,23 @@ opens it unless `click_through` is enabled.
 | Bind a key | Click a binding, then press a keyboard key or mouse button. |
 | Edit a label | Type into the label field next to the binding; leave it empty to use the key name. |
 | Apply changes | The overlay and preview update immediately. |
-| Save / Reload | `Save` writes the TOML file; `Reload` reads it back from disk. |
+| Select a preset | Choose a saved `*.toml` file; unsaved edits prompt before switching. |
+| Create a preset | Click `New`, enter a name, and click `Create`; `.toml` is added automatically when omitted. |
+| Delete a preset | Click `Delete` to remove the selected custom preset; `default.toml` is protected. |
+| Save / Reload | `Save preset` writes the selected TOML file; `Reload` reads it back from disk. |
 | Close | `Esc` or `Close` hides the settings window. |
 | Move the overlay | Press and drag the overlay. A click without moving opens settings. |
 
 When `click_through = true`, the overlay receives no mouse input. Use the
-keyboard shortcut and configure its position in `config.toml` instead.
+keyboard shortcut and configure its position in the selected preset.
 
-## Configuration
-
-`config.toml` is a commented template containing every supported option. The
-most important fields are:
+## Presets
+`presets/default.toml` is the commented template containing every supported
+option. Every preset is a file named `xxx.toml` inside `presets/`. The settings
+window can create a preset from the current live configuration with `New`, and
+`Delete` removes the selected custom preset. The `Save preset` button writes
+the currently selected file.
+The most important fields are:
 
 ```toml
 keys = ["Z", "X", "mLeft"]
@@ -117,6 +126,9 @@ always_on_top = false
 language = ""               # "en", "zh", or "" for the Windows UI language
 ui_scale = 1.0
 ```
+The old C# build's `config.txt` is not compatible with this rewrite. Start from
+`presets/default.toml` instead. Saving through the settings window keeps
+comments and unknown TOML keys in the selected preset.
 
 `keys` accepts the keyboard names used by the application, including letters,
 function keys, modifiers, navigation keys, and mouse names such as `mLeft`,
@@ -124,9 +136,6 @@ function keys, modifiers, navigation keys, and mouse names such as `mLeft`,
 optional parallel list of labels; an empty entry keeps the key's normal name.
 Colors use `#RRGGBB` or `#RRGGBBAA`.
 
-The old C# build's `config.txt` is not compatible with this rewrite. Start from
-the included `config.toml` template instead. Saving through the settings window
-keeps comments and unknown TOML keys in the file.
 
 `background_mode` controls how the selected image is drawn:
 

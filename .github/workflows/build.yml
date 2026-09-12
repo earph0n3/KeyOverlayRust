@@ -27,8 +27,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: keyoverlay-windows
-          # The font and the config template are compiled into the
-          # executable, so a single file is the whole program.
+          # Upload the standalone executable and the editable default preset
+          # template used by first-run installs.
           path: |
             target/release/keyoverlay.exe
-            config.toml
+            presets/default.toml

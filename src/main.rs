@@ -1,10 +1,9 @@
 //! KeyOverlay - Rust rewrite of the SFML/.NET original.
 //!
-//! `config.toml` next to the executable (or the file named by the first CLI
-//! argument) drives everything, exactly like the original. A second window
-//! edits that configuration; it opens with `Ctrl+Alt+K` or by clicking the
-//! overlay. Start-up problems are reported through the same files the original
-//! used: `errorMessage.txt` for anything, `keyErrorMessage.txt` for invalid key
+//! Presets in `presets/*.toml` drive everything. A second window edits the
+//! selected preset; it opens with `Ctrl+Alt+K` or by clicking the overlay.
+//! Start-up problems are reported through the same files the original used:
+//! `errorMessage.txt` for anything, `keyErrorMessage.txt` for invalid key
 //! names.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -61,8 +60,9 @@ const ICON: &[u8] = include_bytes!("../assets/icon.png");
 const SETTINGS_SIZE: (u32, u32) = (980, 780);
 /// Base size bump of the settings window: at 100% DPI the original numbers came
 /// out smaller than a normal Windows dialog, so everything is drawn 1.25x and
-/// then multiplied by the display's own scale factor. `ui_scale` in config.toml
-/// zooms further, relative to the display, so it survives a monitor change.
+/// then multiplied by the display's own scale factor. `ui_scale` in
+/// `presets/default.toml` zooms further, relative to the display, so it
+/// survives a monitor change.
 const UI_BASE_SCALE: f32 = 1.1;
 
 fn ui_scale(config: &Config, monitor_scale: f32) -> f32 {
@@ -147,8 +147,8 @@ struct Overlay {
 }
 
 impl Overlay {
-    fn new(executable_dir: &Path, config_name: &str, fonts: Fonts) -> Result<Self, StartupError> {
-        let config = config::load(executable_dir, config_name).map_err(StartupError::Config)?;
+    fn new(executable_dir: &Path, preset_name: &str, fonts: Fonts) -> Result<Self, StartupError> {
+        let config = config::load(executable_dir, preset_name).map_err(StartupError::Config)?;
         let mut overlay = Self {
             executable_dir: executable_dir.to_path_buf(),
             config,
@@ -237,11 +237,9 @@ impl Overlay {
             } else {
                 WindowLevel::Normal
             });
-            // A transparent overlay is meant to be frameless. The frame has to
-            // be settled before the size is asked for: adding one keeps the
-            // window's outer size, so a client size request made while frameless
-            // would leave the client 22x56 short once the frame is back.
-            window.set_decorations(!self.config.transparent_background);
+            // The overlay owns its drag behavior, so it never needs the
+            // native frame. Keeping it frameless from creation prevents a
+            // transparent-mode toggle from changing the client origin.
             let _ = window.request_inner_size(PhysicalSize::new(
                 self.config.window_width,
                 self.config.window_height,
@@ -300,7 +298,7 @@ impl Overlay {
                 self.config.window_height,
             ))
             .with_resizable(true)
-            .with_decorations(!self.config.transparent_background)
+            .with_decorations(false)
             .with_window_level(if self.config.always_on_top {
                 WindowLevel::AlwaysOnTop
             } else {
@@ -327,7 +325,8 @@ impl Overlay {
 
 struct App {
     executable_dir: PathBuf,
-    config_name: String,
+    preset_name: String,
+    preset_dirty: bool,
     overlay: Overlay,
     settings: Settings,
     settings_window: Option<Arc<Window>>,
@@ -344,9 +343,11 @@ struct App {
 }
 
 impl App {
-    fn build(executable_dir: &Path, config_name: &str) -> Result<Self, StartupError> {
+    fn build(executable_dir: &Path, preset_name: &str) -> Result<Self, StartupError> {
         let fonts = Fonts::load();
-        let mut overlay = Overlay::new(executable_dir, config_name, fonts.clone())?;
+        config::ensure_presets(executable_dir).map_err(StartupError::Config)?;
+        let presets = config::list_presets(executable_dir).map_err(StartupError::Config)?;
+        let mut overlay = Overlay::new(executable_dir, preset_name, fonts.clone())?;
         // Without a CJK face the Chinese labels would render as nothing, so fall
         // back to English rather than showing an unreadable window.
         if fonts.cjk.is_none() && overlay.config.language == Language::Zh {
@@ -354,9 +355,11 @@ impl App {
         }
         let mut settings = Settings::new(fonts).map_err(StartupError::Config)?;
         settings.rescan(&executable_dir.join("Resources"));
+        settings.set_presets(presets);
         Ok(Self {
             executable_dir: executable_dir.to_path_buf(),
-            config_name: config_name.to_string(),
+            preset_name: preset_name.to_string(),
+            preset_dirty: false,
             overlay,
             settings,
             settings_window: None,
@@ -428,6 +431,7 @@ impl App {
             self.settings_surface = Some(surface);
         }
         self.settings.rescan(&self.executable_dir.join("Resources"));
+        self.refresh_presets();
 
         self.settings_open = true;
         if let Some(window) = &self.settings_window {
@@ -443,6 +447,13 @@ impl App {
         }
     }
 
+    fn refresh_presets(&mut self) {
+        match config::list_presets(&self.executable_dir) {
+            Ok(presets) => self.settings.set_presets(presets),
+            Err(message) => self.settings.status(message),
+        }
+    }
+
     /// Rebuilds the overlay from the current configuration.
     fn apply_config(&mut self) {
         if let Err(error) = self.overlay.rebuild() {
@@ -452,6 +463,27 @@ impl App {
                 }
             }
         }
+    }
+    fn save_current_preset(&mut self) -> Result<(), String> {
+        config::save(
+            &self.executable_dir,
+            &self.preset_name,
+            &self.overlay.config,
+        )?;
+        self.preset_dirty = false;
+        Ok(())
+    }
+
+    fn load_preset(&mut self, preset_name: &str) -> Result<(), String> {
+        let config = config::load(&self.executable_dir, preset_name)?;
+        self.preset_name = preset_name.to_string();
+        self.overlay.config = config;
+        self.preset_dirty = false;
+        self.apply_config();
+        if let Some(window) = &self.settings_window {
+            window.set_title(lang::text(self.overlay.config.language).title);
+        }
+        Ok(())
     }
 
     fn draw_settings(&mut self) {
@@ -475,9 +507,13 @@ impl App {
             let Some(pixmap) = self.settings_pixmap.as_mut() else {
                 return;
             };
-            let outcome = self
-                .settings
-                .draw(pixmap, &mut config, preview, hotkey::HOTKEY_LABEL);
+            let outcome = self.settings.draw(
+                pixmap,
+                &mut config,
+                preview,
+                hotkey::HOTKEY_LABEL,
+                &self.preset_name,
+            );
             self.overlay.config = config;
             outcome
         };
@@ -488,16 +524,13 @@ impl App {
         }
 
         if outcome.changed {
+            self.preset_dirty = true;
             self.apply_config();
             let t = lang::text(self.overlay.config.language);
             self.settings.status(t.status_applied);
         }
-        if outcome.save {
-            let message = match config::save(
-                &self.executable_dir,
-                &self.config_name,
-                &self.overlay.config,
-            ) {
+        if outcome.save_preset {
+            let message = match self.save_current_preset() {
                 Ok(()) => lang::text(self.overlay.config.language)
                     .status_saved
                     .to_string(),
@@ -506,14 +539,92 @@ impl App {
             self.settings.status(message);
         }
         if outcome.reload {
-            match config::load(&self.executable_dir, &self.config_name) {
-                Ok(config) => {
-                    self.overlay.config = config;
-                    self.apply_config();
+            let current_preset = self.preset_name.clone();
+            match self.load_preset(&current_preset) {
+                Ok(()) => {
                     let t = lang::text(self.overlay.config.language);
                     self.settings.status(t.status_reloaded);
                 }
                 Err(message) => self.settings.status(message),
+            }
+        }
+        if let Some(preset_name) = outcome.load_preset
+            && preset_name != self.preset_name
+        {
+            if self.preset_dirty {
+                self.settings.prompt_switch(preset_name);
+            } else {
+                match self.load_preset(&preset_name) {
+                    Ok(()) => {
+                        let t = lang::text(self.overlay.config.language);
+                        self.settings
+                            .status(format!("{}: {}", t.status_loaded, self.preset_name));
+                    }
+                    Err(message) => self.settings.status(message),
+                }
+            }
+        }
+        if let Some(preset_name) = outcome.save_and_switch {
+            match self.save_current_preset() {
+                Ok(()) => match self.load_preset(&preset_name) {
+                    Ok(()) => {
+                        let t = lang::text(self.overlay.config.language);
+                        self.settings
+                            .status(format!("{}: {}", t.status_loaded, self.preset_name));
+                    }
+                    Err(message) => self.settings.status(message),
+                },
+                Err(message) => {
+                    self.settings.prompt_switch(preset_name);
+                    self.settings.status(message);
+                }
+            }
+        }
+        if let Some(preset_name) = outcome.discard_and_switch {
+            match self.load_preset(&preset_name) {
+                Ok(()) => {
+                    let t = lang::text(self.overlay.config.language);
+                    self.settings
+                        .status(format!("{}: {}", t.status_loaded, self.preset_name));
+                }
+                Err(message) => self.settings.status(message),
+            }
+        }
+        if let Some(name) = outcome.create_preset {
+            match config::create(&self.executable_dir, &name, &self.overlay.config) {
+                Ok(preset_name) => {
+                    self.preset_name = preset_name.clone();
+                    self.preset_dirty = false;
+                    self.settings.close_new_preset();
+                    self.refresh_presets();
+                    let t = lang::text(self.overlay.config.language);
+                    self.settings
+                        .status(t.status_created.replacen("{}", &preset_name, 1));
+                }
+                Err(message) => self.settings.status(message),
+            }
+        }
+        if outcome.delete_preset {
+            if self.preset_dirty {
+                self.settings
+                    .status(lang::text(self.overlay.config.language).status_unsaved_delete);
+            } else {
+                let deleted_preset = self.preset_name.clone();
+                match config::delete(&self.executable_dir, &deleted_preset) {
+                    Ok(()) => match self.load_preset(config::DEFAULT_PRESET) {
+                        Ok(()) => {
+                            self.refresh_presets();
+                            let t = lang::text(self.overlay.config.language);
+                            self.settings.status(t.status_deleted.replacen(
+                                "{}",
+                                &deleted_preset,
+                                1,
+                            ));
+                        }
+                        Err(message) => self.settings.status(message),
+                    },
+                    Err(message) => self.settings.status(message),
+                }
             }
         }
         if outcome.close {
@@ -569,20 +680,20 @@ impl App {
     fn settings_key(&mut self, event: &winit::event::KeyEvent) {
         use winit::keyboard::{Key, NamedKey};
 
-        let ui = self.settings.ui_mut();
-        let editing = ui.is_editing();
+        let editing = self.settings.ui_mut().is_editing();
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => {
                 if editing {
-                    ui.cancel_edit();
-                } else {
+                    self.settings.ui_mut().cancel_edit();
+                } else if !self.settings.cancel_switch_prompt() {
                     self.close_settings();
                 }
             }
-            Key::Named(NamedKey::Enter) if editing => ui.end_edit(),
-            Key::Named(NamedKey::Backspace) if editing => ui.backspace(),
+            Key::Named(NamedKey::Enter) if editing => self.settings.ui_mut().end_edit(),
+            Key::Named(NamedKey::Backspace) if editing => self.settings.ui_mut().backspace(),
             _ if editing => {
                 if let Some(text) = &event.text {
+                    let ui = self.settings.ui_mut();
                     for ch in text.chars() {
                         ui.type_char(ch);
                     }
@@ -594,6 +705,7 @@ impl App {
 
     fn tick(&mut self) {
         if self.settings.capture_tick(&mut self.overlay.config) {
+            self.preset_dirty = true;
             self.apply_config();
         }
         self.overlay.step();
@@ -753,11 +865,18 @@ fn main() {
         .ok()
         .and_then(|path| path.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("."));
-    let config_name = std::env::args()
+    let preset_name = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "config.toml".to_string());
+        .map(|name| {
+            if name == "config.toml" {
+                config::DEFAULT_PRESET.to_string()
+            } else {
+                name
+            }
+        })
+        .unwrap_or_else(|| config::DEFAULT_PRESET.to_string());
 
-    let mut app = match App::build(&executable_dir, &config_name) {
+    let mut app = match App::build(&executable_dir, &preset_name) {
         Ok(app) => app,
         Err(StartupError::Config(message)) => {
             report(&executable_dir.join("errorMessage.txt"), &message)

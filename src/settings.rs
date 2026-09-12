@@ -1,9 +1,9 @@
-//! Settings window: an immediate-mode panel over the live configuration.
+//! Preset window: an immediate-mode panel over the live configuration.
 //!
-//! Edits are applied to the running configuration immediately (`changed`); the
-//! preview pane mirrors the overlay, and `Save` writes `config.toml` back.
-//! Labels match the configuration names while the interface itself supports
-//! English and Chinese.
+//! Edits are applied to the running configuration immediately (`changed`);
+//! the preview pane mirrors the overlay, and `Save preset` writes the selected
+//! TOML file back. Labels match the configuration names while the interface
+//! itself supports English and Chinese.
 
 use std::path::Path;
 use std::time::Instant;
@@ -23,8 +23,13 @@ use crate::ui::{self, Rect, Ui};
 
 pub struct Outcome {
     pub changed: bool,
-    pub save: bool,
+    pub save_preset: bool,
     pub reload: bool,
+    pub load_preset: Option<String>,
+    pub create_preset: Option<String>,
+    pub delete_preset: bool,
+    pub save_and_switch: Option<String>,
+    pub discard_and_switch: Option<String>,
     pub close: bool,
     /// Height the right column needs, so the window can grow to fit.
     pub needed_height: f32,
@@ -34,8 +39,13 @@ impl Outcome {
     fn new() -> Self {
         Self {
             changed: false,
-            save: false,
+            save_preset: false,
             reload: false,
+            load_preset: None,
+            create_preset: None,
+            delete_preset: false,
+            save_and_switch: None,
+            discard_and_switch: None,
             close: false,
             needed_height: 0.0,
         }
@@ -53,6 +63,11 @@ pub struct Settings {
     capture_armed: bool,
     candidates: Vec<(&'static str, u32)>,
     images: Vec<String>,
+    presets: Vec<String>,
+    preset_menu_open: bool,
+    new_preset_open: bool,
+    new_preset_name: String,
+    pending_switch: Option<String>,
     background_menu_open: bool,
     background_mode_menu_open: bool,
     status: Option<(String, Instant)>,
@@ -70,10 +85,22 @@ impl Settings {
             capture_armed: true,
             candidates: keys::capture_candidates(),
             images: Vec::new(),
+            presets: Vec::new(),
+            preset_menu_open: false,
+            new_preset_open: false,
+            new_preset_name: String::new(),
+            pending_switch: None,
             background_menu_open: false,
             background_mode_menu_open: false,
             status: None,
         })
+    }
+
+    pub fn set_presets(&mut self, presets: Vec<String>) {
+        self.presets = presets;
+        if self.presets.is_empty() {
+            self.preset_menu_open = false;
+        }
     }
 
     /// Images offered for `background_image`, taken from `Resources/`.
@@ -160,6 +187,20 @@ impl Settings {
         self.capture = None;
         true
     }
+    pub fn close_new_preset(&mut self) {
+        self.new_preset_open = false;
+        self.new_preset_name.clear();
+    }
+
+    pub fn prompt_switch(&mut self, preset_name: String) {
+        self.pending_switch = Some(preset_name);
+        self.preset_menu_open = false;
+        self.new_preset_open = false;
+    }
+
+    pub fn cancel_switch_prompt(&mut self) -> bool {
+        self.pending_switch.take().is_some()
+    }
 
     pub fn draw(
         &mut self,
@@ -167,6 +208,7 @@ impl Settings {
         config: &mut Config,
         preview: Option<&Pixmap>,
         hotkey: &str,
+        current_preset: &str,
     ) -> Outcome {
         let mut outcome = Outcome::new();
         let m = ui::Metrics::new(self.scale);
@@ -201,6 +243,74 @@ impl Settings {
             theme.text_dim,
             &mut self.painter,
         );
+        if let Some(preset_name) = self.pending_switch.clone() {
+            let modal_width = (width - m.px(96.0)).max(m.px(460.0));
+            let modal = Rect::new(
+                (width - modal_width) / 2.0,
+                m.px(150.0),
+                modal_width,
+                m.px(190.0),
+            );
+            ui::panel(pm, modal, theme.panel);
+            ui::label(
+                pm,
+                t.unsaved_title,
+                Rect::new(
+                    modal.x + m.px(16.0),
+                    modal.y + m.px(14.0),
+                    modal.w - m.px(32.0),
+                    m.px(24.0),
+                ),
+                m.title,
+                theme.text,
+                &mut self.painter,
+            );
+            let message = t.unsaved_message.replacen("{}", &preset_name, 1);
+            ui::label(
+                pm,
+                &message,
+                Rect::new(
+                    modal.x + m.px(16.0),
+                    modal.y + m.px(48.0),
+                    modal.w - m.px(32.0),
+                    m.px(48.0),
+                ),
+                m.text,
+                theme.text_dim,
+                &mut self.painter,
+            );
+            let button_y = modal.bottom() - m.px(40.0);
+            if ui::button(
+                &mut self.ui,
+                pm,
+                t.save_and_switch,
+                Rect::new(modal.x + m.px(16.0), button_y, m.px(150.0), m.px(30.0)),
+                &mut self.painter,
+            ) {
+                outcome.save_and_switch = self.pending_switch.take();
+            }
+            if ui::button(
+                &mut self.ui,
+                pm,
+                t.discard_and_switch,
+                Rect::new(modal.x + m.px(174.0), button_y, m.px(150.0), m.px(30.0)),
+                &mut self.painter,
+            ) {
+                outcome.discard_and_switch = self.pending_switch.take();
+            }
+            if ui::button(
+                &mut self.ui,
+                pm,
+                t.cancel_switch,
+                Rect::new(modal.right() - m.px(86.0), button_y, m.px(70.0), m.px(30.0)),
+                &mut self.painter,
+            ) {
+                self.pending_switch = None;
+            }
+            outcome.needed_height = height;
+            self.ui.end();
+            return outcome;
+        }
         // Language switch, so it is reachable from anywhere in the window.
         if ui::button(
             &mut self.ui,
@@ -238,11 +348,22 @@ impl Settings {
             );
         }
 
+        let preset_menu_rows = if self.preset_menu_open {
+            self.presets.len()
+        } else {
+            0
+        };
+        let new_form_extra = if self.new_preset_open {
+            m.row + m.px(80.0)
+        } else {
+            0.0
+        };
+        let preview_tail = m.px(152.0) + (preset_menu_rows as f32 + 1.0) * m.row + new_form_extra;
         let preview_rect = Rect::new(
             m.px(16.0),
             m.px(82.0),
             m.px(268.0),
-            (height - m.px(224.0)).max(m.px(120.0)),
+            (height - m.px(82.0) - preview_tail).max(m.px(120.0)),
         );
         ui::panel(pm, preview_rect, theme.panel);
         ui::label(
@@ -270,17 +391,129 @@ impl Settings {
             m,
         );
 
-        // Actions and the interface rows are stacked with a cursor, so a row can
-        // never drift into the next one.
-        let mut y = preview_rect.bottom() + m.px(14.0);
+        // The preset menu is a regular list so it stays usable with the same
+        // pointer handling as the background selectors.
+        let mut y = preview_rect.bottom() + m.px(8.0);
+        let preset_row = Rect::new(m.px(16.0), y, m.px(268.0), m.row);
+        let preset_label = if current_preset.is_empty() {
+            t.none
+        } else {
+            current_preset
+        };
+        ui::label(
+            pm,
+            t.preset,
+            Rect::new(preset_row.x, preset_row.y, m.px(100.0), preset_row.h),
+            m.text,
+            theme.text_dim,
+            &mut self.painter,
+        );
+        let preset_button = Rect::new(
+            preset_row.x + m.px(104.0),
+            preset_row.y,
+            (preset_row.w - m.px(104.0)).max(m.px(80.0)),
+            preset_row.h,
+        );
         if ui::button(
             &mut self.ui,
             pm,
-            t.save,
+            preset_label,
+            preset_button,
+            &mut self.painter,
+        ) {
+            self.preset_menu_open = !self.preset_menu_open;
+        }
+        y += m.row;
+        if self.preset_menu_open {
+            for name in &self.presets {
+                let item = Rect::new(preset_button.x, y, preset_button.w, m.row);
+                if ui::list_item(
+                    &mut self.ui,
+                    pm,
+                    name,
+                    item,
+                    name == current_preset,
+                    &mut self.painter,
+                ) {
+                    outcome.load_preset = Some(name.clone());
+                    self.preset_menu_open = false;
+                }
+                y += m.row;
+            }
+        }
+
+        if self.new_preset_open {
+            y += m.px(4.0);
+            let name_row = Rect::new(m.px(16.0), y, m.px(268.0), m.row);
+            if let Some(name) = self.ui.text_field(
+                pm,
+                name_row,
+                &self.new_preset_name,
+                t.preset_name_hint,
+                m,
+                &mut self.painter,
+            ) {
+                self.new_preset_name = name;
+            }
+            y += m.row + m.px(4.0);
+            if ui::button(
+                &mut self.ui,
+                pm,
+                t.create_preset,
+                Rect::new(m.px(16.0), y, m.px(128.0), m.px(30.0)),
+                &mut self.painter,
+            ) {
+                outcome.create_preset = Some(self.new_preset_name.trim().to_string());
+            }
+            if ui::button(
+                &mut self.ui,
+                pm,
+                t.cancel,
+                Rect::new(m.px(152.0), y, m.px(132.0), m.px(30.0)),
+                &mut self.painter,
+            ) {
+                self.close_new_preset();
+            }
+            y += m.px(38.0) + m.px(4.0);
+        }
+
+        y += m.px(8.0);
+        if ui::button(
+            &mut self.ui,
+            pm,
+            if self.new_preset_open {
+                t.cancel
+            } else {
+                t.new_preset
+            },
+            Rect::new(m.px(16.0), y, m.px(84.0), m.px(30.0)),
+            &mut self.painter,
+        ) {
+            if self.new_preset_open {
+                self.close_new_preset();
+            } else {
+                self.new_preset_open = true;
+                self.new_preset_name.clear();
+            }
+        }
+        if ui::button(
+            &mut self.ui,
+            pm,
+            t.delete_preset,
+            Rect::new(m.px(108.0), y, m.px(84.0), m.px(30.0)),
+            &mut self.painter,
+        ) {
+            outcome.delete_preset = true;
+        }
+        y += m.px(38.0);
+        if ui::button(
+            &mut self.ui,
+            pm,
+            t.save_preset,
             Rect::new(m.px(16.0), y, m.px(162.0), m.px(30.0)),
             &mut self.painter,
         ) {
-            outcome.save = true;
+            outcome.save_preset = true;
         }
         if ui::button(
             &mut self.ui,
@@ -293,59 +526,19 @@ impl Settings {
         }
         y += m.px(38.0);
 
-        ui::label(
-            pm,
-            t.section_interface,
-            Rect::new(m.px(16.0), y, m.px(268.0), m.px(18.0)),
-            m.small,
-            theme.text_dim,
-            &mut self.painter,
-        );
-        y += m.px(24.0);
-
-        let row = Rect::new(m.px(16.0), y, m.px(268.0), m.row);
-        ui::label(
-            pm,
-            t.ui_scale,
-            Rect::new(row.x, row.y, m.px(100.0), row.h),
-            m.text,
-            theme.text_dim,
-            &mut self.painter,
-        );
-        let field = Rect::new(row.x + m.px(104.0), row.y, m.px(100.0), row.h);
-        let shown = format!("{:.2}", config.ui_scale);
-        if let Some(typed) = self.ui.field(pm, field, &shown, m, &mut self.painter) {
-            let value = typed.clamp(0.5, 4.0);
-            if (value - config.ui_scale).abs() > 0.005 {
-                config.ui_scale = value;
-                outcome.changed = true;
-            }
-        }
-        if ui::button(
-            &mut self.ui,
-            pm,
-            t.reset,
-            Rect::new(row.right() - m.px(70.0), row.y, m.px(70.0), row.h),
-            &mut self.painter,
-        ) {
-            config.ui_scale = 1.0;
-            outcome.changed = true;
-        }
-        y = row.bottom() + m.px(6.0);
-
-        ui::label(
-            pm,
-            t.ui_scale_hint,
-            Rect::new(m.px(16.0), y, m.px(268.0), m.px(20.0)),
-            m.small,
-            theme.text_dim,
-            &mut self.painter,
-        );
+        let left_needed_height = y;
 
         // Right column: sections.
         let mut y = m.px(52.0);
         let x = m.px(300.0);
         let section_width = (width - x - m.px(16.0)).max(m.px(320.0));
+        y = self.interface_section(
+            pm,
+            Rect::new(x, y, section_width, 0.0),
+            config,
+            &mut outcome,
+            m,
+        );
 
         y = self.keys_section(
             pm,
@@ -376,6 +569,7 @@ impl Settings {
             m,
         );
         outcome.needed_height = y + m.px(4.0);
+        outcome.needed_height = outcome.needed_height.max(left_needed_height);
 
         self.ui.end();
         outcome
@@ -488,6 +682,58 @@ impl Settings {
             rect.w - m.px(24.0),
             rect.h - m.px(38.0),
         )
+    }
+
+    fn interface_section(
+        &mut self,
+        pm: &mut Pixmap,
+        rect: Rect,
+        config: &mut Config,
+        outcome: &mut Outcome,
+        m: ui::Metrics,
+    ) -> f32 {
+        let t = lang::text(config.language);
+        let rect = Rect::new(rect.x, rect.y, rect.w, m.px(64.0) + m.row);
+        let inner = self.section(pm, rect, t.section_interface, m);
+        let theme = ui::theme();
+        let mut y = inner.y;
+        let row = row_rect(inner, &mut y, m);
+        ui::label(
+            pm,
+            t.ui_scale,
+            Rect::new(row.x, row.y, m.px(100.0), row.h),
+            m.text,
+            theme.text_dim,
+            &mut self.painter,
+        );
+        let field = Rect::new(row.x + m.px(104.0), row.y, m.px(100.0), row.h);
+        let shown = format!("{:.2}", config.ui_scale);
+        if let Some(typed) = self.ui.field(pm, field, &shown, m, &mut self.painter) {
+            let value = typed.clamp(0.5, 4.0);
+            if (value - config.ui_scale).abs() > 0.005 {
+                config.ui_scale = value;
+                outcome.changed = true;
+            }
+        }
+        if ui::button(
+            &mut self.ui,
+            pm,
+            t.reset,
+            Rect::new(row.right() - m.px(70.0), row.y, m.px(70.0), row.h),
+            &mut self.painter,
+        ) {
+            config.ui_scale = 1.0;
+            outcome.changed = true;
+        }
+        ui::label(
+            pm,
+            t.ui_scale_hint,
+            Rect::new(row.x, row.bottom() + m.px(6.0), row.w, m.px(20.0)),
+            m.small,
+            theme.text_dim,
+            &mut self.painter,
+        );
+        rect.bottom() + m.px(8.0)
     }
 
     fn keys_section(

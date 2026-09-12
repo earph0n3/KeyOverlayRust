@@ -22,7 +22,7 @@ impl Language {
         }
     }
 
-    /// Stored in `config.toml`.
+    /// Stored in the selected preset TOML file.
     pub fn code(self) -> &'static str {
         match self {
             Self::En => "en",
@@ -38,8 +38,8 @@ impl Language {
         }
     }
 
-    /// Used when `config.toml` carries no `language` key: follow Windows, so a
-    /// Chinese system starts up in Chinese.
+    /// Used when the selected preset carries no `language` key: follow Windows,
+    /// so a Chinese system starts up in Chinese.
     pub fn system() -> Self {
         // `GetUserDefaultUILanguage` returns a LANGID; the low 10 bits are the
         // primary language, 0x04 = Chinese (simplified and traditional alike).
@@ -65,11 +65,26 @@ pub struct Text {
     pub note: &'static str,
     pub close: &'static str,
     pub live_preview: &'static str,
-    pub save: &'static str,
+    pub preset: &'static str,
+    pub save_preset: &'static str,
+    pub new_preset: &'static str,
+    pub delete_preset: &'static str,
+    pub create_preset: &'static str,
+    pub cancel: &'static str,
+    pub preset_name_hint: &'static str,
+    pub unsaved_title: &'static str,
+    pub unsaved_message: &'static str,
+    pub save_and_switch: &'static str,
+    pub discard_and_switch: &'static str,
+    pub cancel_switch: &'static str,
+    pub status_created: &'static str,
+    pub status_deleted: &'static str,
+    pub status_unsaved_delete: &'static str,
     pub reload: &'static str,
     pub reset: &'static str,
     pub status_applied: &'static str,
     pub status_saved: &'static str,
+    pub status_loaded: &'static str,
     pub status_reloaded: &'static str,
 
     pub section_interface: &'static str,
@@ -110,16 +125,31 @@ pub struct Text {
 }
 
 pub static EN: Text = Text {
-    title: "KeyOverlay settings",
-    note: "{} opens this window  |  Edits apply live, Save keeps them in the config file",
+    title: "KeyOverlay presets",
+    note: "{} opens this window  |  Edits apply live, Save preset writes the selected TOML",
     close: "Close",
     live_preview: "Live preview",
-    save: "Save",
+    preset: "Preset",
+    save_preset: "Save preset",
+    new_preset: "New",
+    delete_preset: "Delete",
+    create_preset: "Create",
+    cancel: "Cancel",
+    preset_name_hint: "new preset name",
+    unsaved_title: "Unsaved changes",
+    unsaved_message: "Save changes before switching to {}?",
+    save_and_switch: "Save and switch",
+    discard_and_switch: "Discard and switch",
+    cancel_switch: "Cancel",
+    status_created: "Preset created: {}",
+    status_deleted: "Preset deleted: {}",
+    status_unsaved_delete: "Save the preset before deleting it",
     reload: "Reload",
     reset: "Reset",
     status_applied: "Applied to the overlay",
-    status_saved: "Saved",
-    status_reloaded: "Reloaded from disk",
+    status_saved: "Preset saved",
+    status_loaded: "Preset loaded",
+    status_reloaded: "Preset reloaded from disk",
     section_interface: "Interface",
     ui_scale: "UI scale",
     ui_scale_hint: "Text size (1.00 = auto)",
@@ -160,16 +190,31 @@ pub static EN: Text = Text {
 };
 
 pub static ZH: Text = Text {
-    title: "KeyOverlay 设置",
-    note: "{} 开关本窗口  |  修改立即生效，保存后写入配置文件",
+    title: "KeyOverlay 预设",
+    note: "{} 开关本窗口  |  修改立即生效，保存预设后写入 TOML",
     close: "关闭",
     live_preview: "实时预览",
-    save: "保存",
+    preset: "预设",
+    save_preset: "保存预设",
+    new_preset: "新建",
+    delete_preset: "删除",
+    create_preset: "创建",
+    cancel: "取消",
+    preset_name_hint: "输入预设名称",
+    unsaved_title: "有未保存的修改",
+    unsaved_message: "切换到 {} 前是否保存当前修改？",
+    save_and_switch: "保存并切换",
+    discard_and_switch: "放弃并切换",
+    cancel_switch: "取消",
+    status_created: "预设已创建：{}",
+    status_deleted: "预设已删除：{}",
+    status_unsaved_delete: "请先保存预设再删除",
     reload: "重新载入",
     reset: "重置",
     status_applied: "已应用到悬浮层",
-    status_saved: "已保存",
-    status_reloaded: "已从磁盘重新载入",
+    status_saved: "预设已保存",
+    status_loaded: "预设已加载",
+    status_reloaded: "已从磁盘重新载入预设",
     section_interface: "界面",
     ui_scale: "界面缩放",
     ui_scale_hint: "文字与控件大小（1.00=自动）",

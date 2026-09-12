@@ -5,8 +5,7 @@
 #
 # keys   - the keys to watch. A key name is a letter, a digit, F1-F24, a name
 #          like Space/Tab/LShift/LControl, or a mouse button
-#          (MouseLeft/MouseRight/MouseMiddle/MouseX1/MouseX2).
-#          Write "Z,label" to show "label" instead of the key name.
+#          (mLeft/mRight/mMiddle/mXButton1/mXButton2).
 # display_keys - optional; one entry per key, "" keeps the key's own name.
 keys = ["Z", "X"]
 display_keys = ["", ""]

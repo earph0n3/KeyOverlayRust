@@ -1,168 +1,190 @@
 # KeyOverlay (Rust)
 
-**English** | [简体中文](README.zh-CN.md)
+[![Build](https://github.com/earph0n3/KeyOverlayRust/actions/workflows/build.yml/badge.svg)](https://github.com/earph0n3/KeyOverlayRust/actions/workflows/build.yml)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
 
-A key overlay for osu! streaming: shows your press keys and a bar travelling up
-for every hit.
+**KeyOverlay** is a lightweight, native Windows overlay for rhythm games such as
+osu!, but it is not tied to a specific title or use case. It shows live
+keyboard and mouse presses, hit bars, custom labels, and optional hit counters
+in a compact window for play, recording, or any other setup that needs a visual
+input display.
 
-This is a from-scratch **Rust** reimplementation of [Blondazz/KeyOverlay], the
-original SFML/.NET application, and is licensed the same way (GPL-3.0). It is
-Windows only, needs no .NET and no CSFML, and builds to a single executable.
+[简体中文](README.zh-CN.md)
 
-[Blondazz/KeyOverlay]: https://github.com/Blondazz/KeyOverlay
+> Windows only. This project is a Rust rewrite of
+> [Blondazz/KeyOverlay](https://github.com/Blondazz/KeyOverlay), with a TOML
+> configuration file and a built-in settings window.
 
-## Vibe coded
+## Highlights
 
-This project is **entirely AI written** ("vibe coding"): the Rust sources, the
-tests, the TOML template, the icon and both READMEs were produced by AI coding
-agents from natural-language prompts. Nobody typed the code by hand; the human
-side was asking for things, running the result and saying what looked wrong.
+- Live keyboard and mouse input visualization.
+- Animated hit bars, optional fading, and per-key hit counters.
+- Settings window with a live preview; changes apply immediately.
+- Global `Ctrl+Alt+K` shortcut to open settings while another application has
+  focus.
+- Transparent layered mode, click-through mode, and always-on-top mode.
+- Custom key labels, RGBA colors, window dimensions, margins, animation speed,
+  and frame-rate control.
+- English and Chinese interface, with DPI-aware UI scaling.
+- Self-contained executable: the font, icon, and first-run configuration
+  template are embedded in the binary.
+- Configuration saves preserve comments and options unknown to this build.
 
-So read the code before you rely on it for anything serious. It is verified by
-being run - the overlay, the settings window, transparency, the config round trip
-and the CI build are all exercised - but it has not had a human design review.
+## Requirements
 
+- Windows.
+- Rust 1.88 or newer with Cargo.
+
+The application does not require .NET or CSFML. Cross-platform builds are not
+supported by this version.
+
+## Build and run
+
+```powershell
+git clone https://github.com/earph0n3/KeyOverlayRust.git
+cd KeyOverlayRust
+cargo build --release --locked
+.\target\release\keyoverlay.exe
 ```
-cargo build --release
-target/release/keyoverlay.exe
+
+For development, run the debug build from the repository root:
+
+```powershell
+cargo run --locked
 ```
 
-That executable is the whole program - the console font and the config template
-are compiled into it - so it is the only file you have to copy. On the first run
-there is no `config.toml` yet, so it writes the commented template next to itself
-and starts with those defaults.
+The release executable is `target/release/keyoverlay.exe`. If no configuration
+file exists, the program creates a commented `config.toml` beside the
+executable and starts with the documented defaults.
 
-`config.toml` documents every option, and the same file can be edited in the
-settings window. It is looked up next to the executable first
-(as it is shipped, and as the release archive unpacks it) and then in the working
-directory, so `cargo run` and `target/release/keyoverlay.exe` both find the file
-in the project root. A path given as the first argument is resolved the same way.
+To use another configuration file, pass its name or path as the first argument:
 
-## Settings window
+```powershell
+.\target\release\keyoverlay.exe .\profiles\mania.toml
+```
 
-`Ctrl+Alt+K` (or clicking the overlay) opens it. Every edit is applied to the
-running overlay immediately; `Save` writes the file, `Reload`
-reads it back, `Esc`/`Close` hides the window. The left pane is a live preview
-with a checkerboard behind it, so a transparent background is visible as such.
-Key bindings are captured by clicking a binding and pressing the key or mouse
-button to use. Config keys this build does not know are preserved on save.
+Configuration lookup checks the executable directory first, then the current
+working directory. A relative path is therefore convenient for both a packaged
+copy and a source checkout.
 
-| Section | Controls |
-|---|---|
-| Keys | bindings, display names, add/remove keys |
-| Layout and animation | key size, margin, outline, bar speed, window size, max FPS, key counter |
-| Appearance | fading overlay, and a colour editor (r,g,b,a) for background, key, border, bar, font and pressed font |
-| Window and streaming | transparent background, click-through, always on top, background image |
-| Interface | language and UI scale (lower left) |
+## Configure the overlay
 
-### Language
+Press **`Ctrl+Alt+K`** to open the settings window. Clicking the overlay also
+opens it unless `click_through` is enabled.
 
-English and Chinese; the button in the top right switches instantly and `Save`
-remembers it (`language = "en"` / `"zh"`, empty = follow the Windows UI
-language).
+| Action | Behavior |
+| --- | --- |
+| Bind a key | Click a binding, then press a keyboard key or mouse button. |
+| Edit a label | Type into the label field next to the binding; leave it empty to use the key name. |
+| Apply changes | The overlay and preview update immediately. |
+| Save / Reload | `Save` writes the TOML file; `Reload` reads it back from disk. |
+| Close | `Esc` or `Close` hides the settings window. |
+| Move the overlay | Press and drag the overlay. A click without moving opens settings. |
 
-Key display names are typed straight into the Keys section: click the box next to
-a binding and type. The window accepts an input method, so a Chinese label can be
-typed as well as a Latin one; an empty box means the key keeps its own name.
+When `click_through = true`, the overlay receives no mouse input. Use the
+keyboard shortcut and configure its position in `config.toml` instead.
 
-Chinese needs a CJK face. The bundled Consolas has none, so the UI and the
-overlay fall back to a system font (`msyh.ttc`, then `Deng.ttf`, `simhei.ttf`,
-...). Without any of them the settings window stays in English; Chinese
-`displayKey` text then has no glyphs to draw.
+## Configuration
 
-### Size
-
-The window is laid out from one scale factor: a base 1.1 on top of the display's
-DPI, so a 150% display draws 1.65x. `UI scale` multiplies that, relative to the
-display (so the value still makes sense after switching monitors), and is stored
-as `ui_scale` (default 1.0, accepted range 0.5-4.0). `Reset` puts it back to 1.00.
-The window grows and shrinks with its content, is centered when it opens and never
-grows larger than the desktop.
-
-Every slider shows its value in a small box that can be typed into: click it, type
-a number and press Enter (or click away) to apply it, Escape to abandon it. The
-slider itself stays for coarse dragging.
-
-The overlay window itself stays in real pixels: `window_width`/`window_height` are
-the captured output size, so the stream keeps exactly the resolution written in
-the configuration instead of a DPI-upscaled, blurry copy.
-
-## Streaming and transparency
-
-The overlay is an ordinary opaque window by default, so the usual setup applies:
-capture it in OBS and chroma key `background_color` out.
-
-Two extra options change that:
-
-| Option | Effect |
-|---|---|
-| `transparent_background = true` | Presents through a layered window (`UpdateLayeredWindow`), so the background is really transparent and no chroma key is needed. The fading trails fade into transparency as well. The alpha in `background_color` is what becomes transparent (0 = fully transparent, 1-254 = a see-through panel); the settings window's toggle sets it to 0 for you. Works with Display Capture, since the desktop compositor draws it. Whether Window Capture keeps the alpha depends on OBS's capture method. Game Capture only captures the game itself, so no external overlay can be composited into it either way. |
-| `click_through = true` | The mouse ignores the overlay and clicks reach whatever is behind it. Implies the layered window. While it is on, the overlay cannot be clicked to open the settings - use `Ctrl+Alt+K`. |
-| `always_on_top = true` | Keeps the overlay above other windows, which matters when it is captured as part of the desktop. |
-
-With a transparent background, Windows hit-tests a layered window per pixel, so
-only the drawn keys and labels can be pressed - a click on an empty part of the
-overlay belongs to whatever is behind it. Dragging works there too (grab a key),
-but the way to reach the settings from an empty area is `Ctrl+Alt+K`.
-
-The three options above are `true`/`false` in the file, like `fading` and
-`key_counter`.
-
-## Moving the overlay
-
-Press anywhere on the overlay and move to drag it - a transparent overlay has no
-title bar at all, and the opaque one is easier to grab by its body than by the
-title bar above it. Pressing without moving (a click) opens the settings instead.
-With `click_through = true` the overlay receives no mouse input at all, so neither
-works and the position comes from the config file.
-
-## How it compares to the original
-
-The rendering rules are a 1:1 port of the C# implementation - key geometry on
-the 480x960 canvas, outlines drawn outside the shape, the bar growth and travel
-per frame, the 255-strip fading overlay, SFML's text layout and origin - and the
-configuration file is TOML rather than the original's `key=value` lines, so it
-can carry comments, real booleans, one list per group of keys, and `#RRGGBBAA`
-colours:
+`config.toml` is a commented template containing every supported option. The
+most important fields are:
 
 ```toml
-keys = ["Z", "X"]           # "Z,space" shows "space" instead of the key name
-key_size = 70               # height of a square, in pixels
-fading = true               # squares fade back after a hit
+keys = ["Z", "X", "mLeft"]
+display_keys = ["", "", "M1"]
+
+key_size = 70
+window_width = 240
+window_height = 700
+bar_speed = 600.0
+fading = true
+key_counter = false
+max_fps = 60                 # 0 = uncapped
+
 background_color = "#000000FF"
+key_color = "#00000000"
+border_color = "#FFFFFFFF"
+bar_color = "#FFFFFF64"
+font_color = "#FFFFFFFF"
+press_font_color = "#FFFFFFFF"
+
 transparent_background = false
+click_through = false
+always_on_top = false
+language = ""               # "en", "zh", or "" for the Windows UI language
+ui_scale = 1.0
 ```
 
-An existing `config.txt` is not read: both the value names and the way values
-are written changed, so it is easiest to start from the new template and set the
-options once in the settings window.
+`keys` accepts the keyboard names used by the application, including letters,
+function keys, modifiers, navigation keys, and mouse names such as `mLeft`,
+`mRight`, `mMiddle`, `mXButton1`, and `mXButton2`. `display_keys` is an
+optional parallel list of labels; an empty entry keeps the key's normal name.
+Colors use `#RRGGBB` or `#RRGGBBAA`.
 
-Deliberate differences:
+The old C# build's `config.txt` is not compatible with this rewrite. Start from
+the included `config.toml` template instead. Saving through the settings window
+keeps comments and unknown TOML keys in the file.
 
-- A single key divided by zero in the original (nothing was drawn); the one key
-  is centered here.
-- A missing `config.toml` is created from the template on startup instead of
-  failing with an error.
-- An invalid key name writes `keyErrorMessage.txt` and exits, instead of writing
-  the file and then crashing on an index error.
-- Missing configuration values write `errorMessage.txt` naming the offending
-  key, then exit. A background image that cannot be loaded is only reported on
-  stderr and skipped, so a file that moved does not stop the overlay; the
-  settings window shows the name as missing instead, where it can be changed.
-- `+ Add key` in the settings window widens `window_width` by one key width plus
-  the spacing that key gets, and `x` gives that room back, so adding keys never
-  squeezes the ones already there.
-- The background image is resolved next to the executable (in `Resources/`) and
-  drawn 1:1 from the top left corner, so a smaller image leaves the rest of the
-  window in `background_color`. The original looked in the working directory.
-- The font is rasterized as-is: SFML additionally emboldens it, so strokes here
-  are about 1px thinner at the default size.
-- Chinese `displayKey` text is drawn (the original had no CJK glyphs at all).
-- The file may contain `#` comments; the original parser cannot read those, so
-  strip them if you point the C# build at this file.
+## Transparency and window behavior
 
-## Licence
+The default window is opaque. If you use the overlay in a recording or screen
+capture, remove `background_color` with the capture tool's chroma key when
+needed.
 
-GPL-3.0, see [LICENSE](LICENSE), matching the original project by Blondazz which
-this is derived from. `assets/consolab.ttf` is the same Consolas Bold face the
-original ships.
+For a compositor-based setup:
+
+- `transparent_background = true` enables a layered window with per-pixel
+  alpha, so a chroma key is not required.
+- `click_through = true` lets mouse clicks pass to the window behind the
+  overlay. It also implies layered rendering.
+- `always_on_top = true` keeps the overlay above other windows.
+
+Display Capture can include a transparent overlay because Windows composites it
+into the desktop. Whether Window Capture preserves the alpha channel depends on
+the capture method. Game Capture captures the game itself, not an external
+overlay; use a desktop or window capture mode when the overlay must be visible.
+
+## Background images
+
+Place a PNG or JPEG beside the executable under `Resources/`, then set its file
+name in `config.toml`:
+
+```toml
+background_image = "keyboard.png"
+```
+
+The image is drawn from the top-left corner at its original size. A missing or
+unreadable background image is skipped and reported without preventing the
+overlay from starting.
+
+## Troubleshooting
+
+- Configuration and startup errors are written to `errorMessage.txt` beside the
+  executable.
+- Invalid key names are written to `keyErrorMessage.txt`.
+- If `Ctrl+Alt+K` does not open settings, another application may already own
+  the global shortcut.
+- Chinese UI text and custom labels require a CJK font available on Windows;
+  the bundled Consolas font does not contain CJK glyphs.
+
+## Development
+
+The CI workflow runs the same checks used by the project:
+
+```powershell
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --locked
+cargo build --release --locked
+```
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+This project is a from-scratch Rust rewrite of
+[Blondazz/KeyOverlay](https://github.com/Blondazz/KeyOverlay).
+
+The current implementation was created with AI-assisted development. CI covers
+formatting, Clippy, tests, and the release build, but runtime behavior should
+still be verified on the Windows and rhythm-game setup where you plan to use it.

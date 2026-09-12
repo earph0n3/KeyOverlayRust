@@ -1,139 +1,167 @@
-# KeyOverlay (Rust)
+# KeyOverlay（Rust）
 
-[English](README.md) | **简体中文**
+[![构建](https://github.com/earph0n3/KeyOverlayRust/actions/workflows/build.yml/badge.svg)](https://github.com/earph0n3/KeyOverlayRust/actions/workflows/build.yml)
+[![许可证：GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
 
-osu! 直播用的按键悬浮层：显示你按下的键，每次击打都有一条光条向上移动。
+**KeyOverlay** 是一个面向节奏类游戏（例如 osu!）的轻量级 Windows 原生按键悬浮层，
+但它不绑定某一款游戏或特定使用场景。它会显示实时键盘/鼠标按键、击打光条、自定义
+显示名和可选的击打次数，可用于游玩辅助、录制、桌面展示，或任何需要实时按键可视化的场景。
 
-这是对 [Blondazz/KeyOverlay]（原版 SFML/.NET 程序）从零开始的 **Rust** 重写，
-沿用同样的 GPL-3.0 许可。仅支持 Windows，不需要 .NET、也不需要 CSFML，
-编译产物是单个可执行文件。
+[English](README.md)
 
-[Blondazz/KeyOverlay]: https://github.com/Blondazz/KeyOverlay
+> 仅支持 Windows。本项目是 [Blondazz/KeyOverlay](https://github.com/Blondazz/KeyOverlay)
+> 的 Rust 重写版，使用 TOML 配置文件，并提供内置设置窗口。
 
-## 关于代码来源
+## 功能
 
-**本项目完全由 AI 生成**（也就是所谓的 vibe coding）：Rust 源码、测试、TOML 配置模板、
-图标，以及这两份 README，全部由 AI 编码助手根据自然语言需求产出，没有人手写代码。
-人负责的是提出需求、运行程序、指出哪里不对。
+- 实时显示键盘和鼠标输入。
+- 击打光条、可选渐隐效果和按键击打计数。
+- 带实时预览的设置窗口，修改立即作用于悬浮层。
+- 全局 `Ctrl+Alt+K` 快捷键：即使其他程序处于焦点，也能打开设置。
+- 真透明分层窗口、鼠标穿透和窗口置顶。
+- 自定义按键显示名、RGBA 颜色、窗口尺寸、边距、动画速度和帧率。
+- 中英文界面，以及适配 DPI 的界面缩放。
+- 单文件可执行程序：字体、图标和首次运行配置模板都已编译进程序。
+- 保存配置时保留注释，以及当前版本不认识的配置项。
 
-所以，在把它用在要紧的场合之前，请先自己读一遍代码。它的验证方式是"跑起来看"——
-悬浮层、设置窗口、透明背景、配置读写和 CI 构建都实测过——但没有经过人工的逐行设计评审。
+## 环境要求
 
+- Windows。
+- Rust 1.88 或更新版本，以及 Cargo。
+
+程序不需要 .NET 或 CSFML。当前版本不支持跨平台构建。
+
+## 构建与运行
+
+```powershell
+git clone https://github.com/earph0n3/KeyOverlayRust.git
+cd KeyOverlayRust
+cargo build --release --locked
+.\target\release\keyoverlay.exe
 ```
-cargo build --release
-target/release/keyoverlay.exe
+
+开发时可以在项目根目录直接运行调试版本：
+
+```powershell
+cargo run --locked
 ```
 
-这个可执行文件就是整个程序——控制台字体和配置模板都编译在里面——所以它是你唯一需要
-拷贝的文件。首次运行时还没有 `config.toml`，程序会把带注释的模板写到自身旁边，并以
-其中的默认值启动。
+Release 可执行文件位于 `target/release/keyoverlay.exe`。如果找不到配置文件，程序会把
+带完整注释的 `config.toml` 写到可执行文件旁边，并用其中的默认值启动。
 
-`config.toml` 里每一项都带说明，同一个文件也可以在设置窗口里编辑。查找顺序是先在
-可执行文件旁边找（发行包解压后就是这个样子），再找当前工作目录，所以 `cargo run` 和
-`target/release/keyoverlay.exe` 都能找到项目根目录下的这个文件；命令行第一个参数指定的
-路径也按同样规则解析。
+如果要使用其他配置文件，把文件名或路径作为第一个参数传入：
 
-## 设置窗口
+```powershell
+.\target\release\keyoverlay.exe .\profiles\mania.toml
+```
 
-`Ctrl+Alt+K`（或者点击悬浮层）打开。每次修改都立即作用到正在运行的悬浮层上；`保存`
-写回文件，`重新载入` 从磁盘读回，`Esc`/`关闭` 隐藏窗口。左栏是实时预览，背后铺着棋盘格
-底纹，所以透明背景一眼就能看出来。绑定按键的方式是：点一下绑定按钮，然后按下你要用的键
-或鼠标键。本版本不认识的配置项在保存时原样保留。
+配置查找顺序是：先检查可执行文件所在目录，再检查当前工作目录。因此相对路径既适合
+打包后的程序，也适合源码目录运行。
 
-| 区块 | 控件 |
-|---|---|
-| 按键 | 绑定、显示名、添加/删除按键 |
-| 布局与动画 | 按键大小、边距、描边、光条速度、窗口尺寸、最大帧率、击打计数 |
-| 外观 | 渐隐效果，以及背景、按键、描边、光条、字体、按下字体六种颜色编辑器 |
-| 窗口与直播 | 透明背景、鼠标穿透、窗口置顶、背景图 |
-| 界面 | 语言与界面缩放（左下角） |
+## 设置悬浮层
 
-### 语言
+按 **`Ctrl+Alt+K`** 打开设置窗口。未开启 `click_through` 时，直接点击悬浮层也可以打开。
 
-英文与中文；右上角按钮即时切换，`保存` 会记住（`language = "en"` / `"zh"`，
-留空表示跟随 Windows 界面语言）。
+| 操作 | 行为 |
+| --- | --- |
+| 绑定按键 | 点击绑定项，再按下键盘键或鼠标键。 |
+| 编辑显示名 | 在绑定右侧的显示名输入框中输入；留空则使用按键原名。 |
+| 应用修改 | 悬浮层和预览会立即更新。 |
+| 保存 / 重新载入 | `Save` 写入 TOML；`Reload` 从磁盘重新读取。 |
+| 关闭 | `Esc` 或 `Close` 隐藏设置窗口。 |
+| 移动悬浮层 | 按住并拖动悬浮层；按下但不移动则打开设置。 |
 
-按键的显示名可以直接在「按键」区块里输入：点绑定按钮右边的格子打字即可。窗口接受输入法，
-所以中文和拉丁字母都能直接输入；格子留空表示沿用按键自身的名字。
+开启 `click_through = true` 后，悬浮层完全收不到鼠标输入。此时请用快捷键打开设置，
+并在 `config.toml` 中调整位置。
 
-中文需要 CJK 字体。内置的 Consolas 没有中文字形，所以界面和悬浮层会回退到系统字体
-（`msyh.ttc`，其次 `Deng.ttf`、`simhei.ttf`……）。系统里一个都找不到时，设置窗口会保持
-英文；中文 `display_keys` 也没有字形可画。
+## 配置文件
 
-### 尺寸
-
-窗口按同一个缩放系数布局：基础 1.1 再乘显示器 DPI，所以 150% 的显示器实际画 1.65 倍。
-`界面缩放` 在此基础上再乘，且是相对显示器的（换显示器后这个数值仍然有意义），存储为
-`ui_scale`（默认 1.0，可接受范围 0.5–4.0）。`重置` 把它变回 1.00。窗口随内容增减，
-打开时居中，并且永远不会比桌面工作区更大。
-
-每条滑条右侧都有一个可以直接输入的小方框：点它、输入数字、按回车（或者点到别处）生效，
-按 Esc 放弃。滑条本身仍然可以粗略拖动。
-
-悬浮层窗口本身始终使用真实像素：`window_width`/`window_height` 就是捕获输出的尺寸，
-所以直播流的分辨率完全等于配置里写的值，而不是被 DPI 放大后糊掉的副本。
-
-## 推流与透明
-
-默认情况下悬浮层就是一个普通的不透明窗口，因此常规做法依然适用：在 OBS 里捕获它，
-再用色键抠掉 `background_color`。
-
-另外三个选项会改变这一点：
-
-| 选项 | 效果 |
-|---|---|
-| `transparent_background = true` | 通过分层窗口呈现（`UpdateLayeredWindow`），背景是真正透明的，不需要色键；渐隐拖尾也是淡到透明。变得透明的是 `background_color` 里的 alpha（0 = 完全透明，1–254 = 半透明面板），设置窗口里的开关会自动帮你设成 0。它配合"显示器捕获"可用，因为桌面合成器会把它画出来；"窗口捕获"能否保留 alpha 取决于 OBS 的捕获方式；"游戏捕获"只抓游戏本身，任何外部悬浮层都无法以这种方式合成进去。 |
-| `click_through = true` | 鼠标忽略悬浮层，点击会落到它后面的东西上。隐含使用分层窗口。开启期间无法通过点击悬浮层打开设置，请用 `Ctrl+Alt+K`。 |
-| `always_on_top = true` | 让悬浮层保持在其他窗口之上，把它作为桌面的一部分捕获时这一点很重要。 |
-
-透明背景下，Windows 对分层窗口是**逐像素**做命中测试的，所以只有画出来的按键和文字能
-被点到——点在空白处的点击属于它背后的窗口。拖动同理（可以抓住按键拖），从空白处进入设置
-的办法是 `Ctrl+Alt+K`。
-
-上面三个选项在文件里就是 `true`/`false`，和 `fading`、`key_counter` 一样。
-
-## 移动悬浮层
-
-在悬浮层任意位置按下并移动即可拖动它——透明模式下它根本没有标题栏，而不透明模式下抓
-它的主体也比抓上面那条细标题栏容易。按下后不移动（也就是单击）则是打开设置。
-`click_through = true` 时悬浮层完全收不到鼠标输入，所以两种都不可用，位置只能由配置
-文件决定。
-
-## 与原版的差异
-
-渲染规则是 C# 实现的 1:1 移植——480x960 画布上的按键几何、画在形状外侧的描边、逐帧的
-光条生长与移动、255 条渐隐覆盖层、SFML 的文字布局与原点——而配置文件换成了 TOML
-（原版是 `key=value` 行），因此可以有注释、真正的布尔值、每组按键一个列表，以及
-`#RRGGBBAA` 颜色：
+`config.toml` 是带注释的完整模板，包含所有支持的配置项。常用字段如下：
 
 ```toml
-keys = ["Z", "X"]           # "Z,space" 表示显示 "space" 而不是键名
-key_size = 70               # 方块高度，单位像素
-fading = true               # 击打后方块渐隐
+keys = ["Z", "X", "mLeft"]
+display_keys = ["", "", "M1"]
+
+key_size = 70
+window_width = 240
+window_height = 700
+bar_speed = 600.0
+fading = true
+key_counter = false
+max_fps = 60                 # 0 = 不限帧率
+
 background_color = "#000000FF"
+key_color = "#00000000"
+border_color = "#FFFFFFFF"
+bar_color = "#FFFFFF64"
+font_color = "#FFFFFFFF"
+press_font_color = "#FFFFFFFF"
+
 transparent_background = false
+click_through = false
+always_on_top = false
+language = ""               # "en"、"zh"，或留空跟随 Windows 界面语言
+ui_scale = 1.0
 ```
 
-旧的 `config.txt` 不会被读取：值的名字和写法都变了，最简单的做法是从新模板开始，
-在设置窗口里把选项过一遍。
+`keys` 支持程序内置的键盘名称，包括字母、功能键、修饰键、导航键，以及 `mLeft`、
+`mRight`、`mMiddle`、`mXButton1`、`mXButton2` 等鼠标名称。`display_keys` 是与 `keys`
+一一对应的可选显示名列表；某项留空就使用按键原名。颜色格式为 `#RRGGBB` 或
+`#RRGGBBAA`。
 
-有意的差异：
+原 C# 版本的 `config.txt` 与这个重写版不兼容，请从仓库里的 `config.toml` 模板开始。
+在设置窗口中保存时，文件里的注释和未知 TOML 配置项会保留。
 
-- 单个按键在原版里会除以零（什么都不画）；这里把这一个按键居中显示。
-- 缺少 `config.toml` 时会在启动阶段按模板生成，而不是直接报错退出。
-- 键名无效时会写出 `keyErrorMessage.txt` 并退出，而不是先写文件再因下标越界崩溃。
-- 配置项缺失时会写出 `errorMessage.txt`，指明出问题的键，然后退出；背景图加载失败则只在
-  stderr 报告并跳过，文件被移走不会导致悬浮层无法启动，设置窗口会把该名字标为「缺失」，
-  可以在那里改选。
-- 设置窗口里的 `+ 添加按键` 会把 `window_width` 加宽"一个按键宽 + 该键获得的间距"，
-  `x` 则把这份空间还回去，所以加键永远不会把已有的按键挤在一起。
-- 背景图在可执行文件旁边的 `Resources/` 里查找，并从左上角按原始尺寸绘制（1:1），所以
-  图片比窗口小时其余部分保持 `background_color`。原版是在工作目录里查找的。
-- 字体按原样栅格化：SFML 还会额外做加粗，所以默认字号下这里的笔画大约细 1 像素。
-- 中文的 `display_keys` 文字可以正常绘制（原版完全没有 CJK 字形）。
-- 配置文件里可以写 `#` 注释；原版解析器读不了，所以把 C# 版本指向这个文件时要先去掉注释。
+## 透明背景与窗口行为
+
+默认悬浮层是不透明窗口。如果用于录制或屏幕捕获，需要去掉背景时，可以在捕获工具中对
+`background_color` 使用色键。
+
+如果希望使用桌面合成的透明效果：
+
+- `transparent_background = true` 开启带逐像素 alpha 的分层窗口，不需要色键。
+- `click_through = true` 让鼠标点击穿过悬浮层，落到后面的窗口；它也会隐含开启分层渲染。
+- `always_on_top = true` 让悬浮层保持在其他窗口之上。
+
+Windows 会把透明悬浮层合成到桌面，所以「显示器捕获」可以包含它。「窗口捕获」是否保留
+alpha 取决于捕获方式。「游戏捕获」只捕获游戏本身，不会自动合成外部悬浮层；如果需要同时
+显示悬浮层，请使用桌面捕获或合适的窗口捕获模式。
+
+## 背景图
+
+把 PNG 或 JPEG 放到可执行文件旁边的 `Resources/` 目录中，再在 `config.toml` 设置文件名：
+
+```toml
+background_image = "keyboard.png"
+```
+
+图片会从窗口左上角开始，以原始尺寸绘制。背景图缺失或无法读取时，程序会跳过它并报告问题，
+不会因此阻止悬浮层启动。
+
+## 故障排查
+
+- 配置或启动错误会写入可执行文件旁边的 `errorMessage.txt`。
+- 无效的按键名称会写入 `keyErrorMessage.txt`。
+- 如果 `Ctrl+Alt+K` 没有反应，可能是其他程序已经占用了这个全局快捷键。
+- 中文界面和自定义中文显示名需要 Windows 中存在 CJK 字体；程序内置的 Consolas 不包含中文
+  字形。
+
+## 开发
+
+CI 工作流会执行与项目一致的检查：
+
+```powershell
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --locked
+cargo build --release --locked
+```
 
 ## 许可证
 
-GPL-3.0，见 [LICENSE](LICENSE)，与原项目（Blondazz 的 [Blondazz/KeyOverlay]）保持一致，
-本项目由它派生而来。`assets/consolab.ttf` 就是原版附带的同一个 Consolas Bold 字体。
+GPL-3.0-or-later，详见 [LICENSE](LICENSE)。
+
+本项目是 [Blondazz/KeyOverlay](https://github.com/Blondazz/KeyOverlay) 的 Rust 从零重写版。
+
+当前实现使用了 AI 辅助开发。CI 会检查格式、Clippy、测试和 Release 构建，但在正式使用前，
+仍应先实际验证运行效果。

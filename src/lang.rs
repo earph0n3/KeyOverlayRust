@@ -22,7 +22,7 @@ impl Language {
         }
     }
 
-    /// Stored in `config.txt`.
+    /// Stored in `config.toml`.
     pub fn code(self) -> &'static str {
         match self {
             Self::En => "en",
@@ -38,7 +38,7 @@ impl Language {
         }
     }
 
-    /// Used when `config.txt` carries no `language` key: follow Windows, so a
+    /// Used when `config.toml` carries no `language` key: follow Windows, so a
     /// Chinese system starts up in Chinese.
     pub fn system() -> Self {
         // `GetUserDefaultUILanguage` returns a LANGID; the low 10 bits are the
@@ -61,7 +61,7 @@ impl Language {
 
 pub struct Text {
     pub title: &'static str,
-    /// Two `{}` placeholders: the hotkey and the config file name.
+    /// One `{}` placeholder: the hotkey that opens the window.
     pub note: &'static str,
     pub close: &'static str,
     pub live_preview: &'static str,
@@ -69,7 +69,6 @@ pub struct Text {
     pub reload: &'static str,
     pub reset: &'static str,
     pub status_applied: &'static str,
-    /// One `{}`: the config file name.
     pub status_saved: &'static str,
     pub status_reloaded: &'static str,
 
@@ -110,14 +109,14 @@ pub struct Text {
 
 pub static EN: Text = Text {
     title: "KeyOverlay settings",
-    note: "{} toggles this window  |  Edits apply live, Save writes {}",
+    note: "{} opens this window  |  Edits apply live, Save keeps them in the config file",
     close: "Close",
     live_preview: "Live preview",
-    save: "Save to config.txt",
-    reload: "Reload file",
+    save: "Save",
+    reload: "Reload",
     reset: "Reset",
     status_applied: "Applied to the overlay",
-    status_saved: "Saved to {}",
+    status_saved: "Saved",
     status_reloaded: "Reloaded from disk",
     section_interface: "Interface",
     ui_scale: "UI scale",
@@ -152,14 +151,14 @@ pub static EN: Text = Text {
 
 pub static ZH: Text = Text {
     title: "KeyOverlay 设置",
-    note: "{} 开关本窗口  |  修改立即生效，保存写入 {}",
+    note: "{} 开关本窗口  |  修改立即生效，保存后写入配置文件",
     close: "关闭",
     live_preview: "实时预览",
-    save: "保存到 config.txt",
+    save: "保存",
     reload: "重新载入",
     reset: "重置",
     status_applied: "已应用到悬浮层",
-    status_saved: "已保存到 {}",
+    status_saved: "已保存",
     status_reloaded: "已从磁盘重新载入",
     section_interface: "界面",
     ui_scale: "界面缩放",
@@ -197,13 +196,6 @@ pub fn text(language: Language) -> &'static Text {
         Language::En => &EN,
         Language::Zh => &ZH,
     }
-}
-
-/// Fills the `{}` placeholders of a template.
-pub fn fill(template: &str, first: &str, second: &str) -> String {
-    let mut out = template.replacen("{}", first, 1);
-    out = out.replacen("{}", second, 1);
-    out
 }
 
 /// A CJK-capable face from the system font directory. The embedded Consolas has

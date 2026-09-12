@@ -17,6 +17,7 @@ image = { version = "0.25", default-features = false, features = [
 ] }
 softbuffer = "0.4"
 tiny-skia = "0.12"
+toml_edit = { version = "0.22", default-features = false, features = ["parse", "display"] }
 winit = "0.30"
 
 [target.'cfg(windows)'.dependencies]

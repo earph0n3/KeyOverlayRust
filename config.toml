@@ -1,0 +1,42 @@
+# KeyOverlay - Rust build
+#
+# This file is yours to edit; the settings window (Ctrl+Alt+K) writes the same
+# values back and keeps every comment here.
+#
+# keys   - the keys to watch. A key name is a letter, a digit, F1-F24, a name
+#          like Space/Tab/LShift/LControl, or a mouse button
+#          (MouseLeft/MouseRight/MouseMiddle/MouseX1/MouseX2).
+#          Write "Z,label" to show "label" instead of the key name.
+# display_keys - optional; one entry per key, "" keeps the key's own name.
+keys = ["Z", "X"]
+display_keys = ["", ""]
+
+# Layout, in pixels of the output image.
+key_size = 70             # height (and width) of a square
+margin = 25               # distance from the window edge
+outline_thickness = 5     # frame drawn around each square
+bar_speed = 600.0         # how fast the hit bar travels up, pixels/second
+window_width = 240
+window_height = 700
+
+# Colours are "#RRGGBB" or "#RRGGBBAA" (the last two digits are opacity).
+background_color = "#000000FF"
+key_color = "#00000000"
+border_color = "#FFFFFFFF"
+bar_color = "#FFFFFF64"
+font_color = "#FFFFFFFF"
+press_font_color = "#FFFFFFFF"
+background_image = ""     # file name inside Resources/, "" for none
+
+fading = true             # squares fade back after a hit
+key_counter = false       # count the hits in the corner
+max_fps = 60              # 0 = uncapped
+
+language = ""             # "en", "zh", or "" to follow Windows
+ui_scale = 1.0            # settings window zoom on top of the display DPI
+
+# A layered window has a real transparent background (no chroma key needed);
+# with click_through the mouse ignores the overlay completely.
+transparent_background = false
+click_through = false
+always_on_top = false

@@ -159,7 +159,6 @@ impl Settings {
         config: &mut Config,
         preview: Option<&Pixmap>,
         hotkey: &str,
-        config_name: &str,
     ) -> Outcome {
         let mut outcome = Outcome::new();
         let m = ui::Metrics::new(self.scale);
@@ -169,7 +168,7 @@ impl Settings {
         let width = pm.width() as f32;
         let height = pm.height() as f32;
         let theme = ui::theme();
-        let note = lang::fill(t.note, hotkey, config_name);
+        let note = t.note.replacen("{}", hotkey, 1);
 
         ui::panel(pm, Rect::new(0.0, 0.0, width, height), theme.background);
         ui::panel(pm, Rect::new(0.0, 0.0, width, m.px(40.0)), theme.panel);

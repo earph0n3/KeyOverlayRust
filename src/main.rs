@@ -1,6 +1,6 @@
 //! KeyOverlay - Rust rewrite of the SFML/.NET original.
 //!
-//! `config.txt` next to the executable (or the file named by the first CLI
+//! `config.toml` next to the executable (or the file named by the first CLI
 //! argument) drives everything, exactly like the original. A second window
 //! edits that configuration; it opens with `Ctrl+Alt+K` or by clicking the
 //! overlay. Start-up problems are reported through the same files the original
@@ -61,7 +61,7 @@ const ICON: &[u8] = include_bytes!("../assets/icon.png");
 const SETTINGS_SIZE: (u32, u32) = (980, 780);
 /// Base size bump of the settings window: at 100% DPI the original numbers came
 /// out smaller than a normal Windows dialog, so everything is drawn 1.25x and
-/// then multiplied by the display's own scale factor. `uiScale` in config.txt
+/// then multiplied by the display's own scale factor. `ui_scale` in config.toml
 /// zooms further, relative to the display, so it survives a monitor change.
 const UI_BASE_SCALE: f32 = 1.1;
 
@@ -194,14 +194,14 @@ impl Overlay {
             inputs.push(parsed.input);
         }
 
-        let key_count = self.config.key_amount as usize;
+        let key_count = self.config.keys.len();
         self.slots.resize_with(key_count, KeySlot::new);
         self.slots.truncate(key_count);
         self.pressed.resize(key_count, false);
         self.pressed.truncate(key_count);
 
         self.squares = layout::create_squares(
-            self.config.key_amount,
+            self.config.keys.len() as u32,
             self.config.outline_thickness,
             self.config.key_size,
             self.config.margin,
@@ -472,13 +472,9 @@ impl App {
             let Some(pixmap) = self.settings_pixmap.as_mut() else {
                 return;
             };
-            let outcome = self.settings.draw(
-                pixmap,
-                &mut config,
-                preview,
-                hotkey::HOTKEY_LABEL,
-                &self.config_name,
-            );
+            let outcome = self
+                .settings
+                .draw(pixmap, &mut config, preview, hotkey::HOTKEY_LABEL);
             self.overlay.config = config;
             outcome
         };
@@ -499,10 +495,9 @@ impl App {
                 &self.config_name,
                 &self.overlay.config,
             ) {
-                Ok(()) => {
-                    let t = lang::text(self.overlay.config.language);
-                    lang::fill(t.status_saved, &self.config_name, "")
-                }
+                Ok(()) => lang::text(self.overlay.config.language)
+                    .status_saved
+                    .to_string(),
                 Err(message) => message,
             };
             self.settings.status(message);
@@ -749,7 +744,7 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("."));
     let config_name = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "config.txt".to_string());
+        .unwrap_or_else(|| "config.toml".to_string());
 
     let mut app = match App::build(&executable_dir, &config_name) {
         Ok(app) => app,

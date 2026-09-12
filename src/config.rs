@@ -1,28 +1,20 @@
-//! `config.txt` parsing and writing - port of `AppWindow.ReadConfig` and
-//! `CreateItems.CreateColor`.
+//! `config.toml` parsing and writing.
 //!
-//! Behaviour kept from the original:
-//! * the file is read next to the executable (or the first CLI argument, also
-//!   resolved next to the executable),
-//! * a line is `name=value`, the value ends at the second `=` (`Split("=")[1]`),
-//! * names and string values are compared verbatim (`fading=yes`),
-//! * numbers/colours tolerate surrounding whitespace (`int.Parse` behaviour),
-//! * duplicate or missing names and malformed values abort startup.
-//!
-//! The settings window writes this file back. It stays parseable by the
-//! original C# build: `name=value` only, no comments, no blank lines, and every
-//! name the C# version reads is always written.
+//! The file is TOML: real comments, real booleans and one array per list of
+//! keys, so it reads the way it is meant to be edited by hand. Saving edits the
+//! parsed document in place, which keeps every comment and any key this build
+//! does not know about.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use toml_edit::{Array, DocumentMut, Item, value};
+
+use crate::lang::Language;
 use crate::layout;
 
 /// The commented template that ships inside the executable, so a lone
 /// `keyoverlay.exe` can create its own configuration on first run.
-const TEMPLATE: &str = include_str!("../config.txt");
-
-use crate::lang::Language;
+const TEMPLATE: &str = include_str!("../config.toml");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
@@ -36,10 +28,9 @@ pub struct Color {
 pub struct Config {
     pub window_width: u32,
     pub window_height: u32,
-    pub key_amount: u32,
-    /// `key1..keyN`, in order.
+    /// Keys to watch, in the order they are drawn.
     pub keys: Vec<String>,
-    /// `displayKey1..keyN` (`""` means "keep the key name").
+    /// Parallel to `keys`; `""` means "keep the key name".
     pub display_keys: Vec<String>,
     pub key_size: i32,
     pub bar_speed: f32,
@@ -64,58 +55,9 @@ pub struct Config {
     /// Let the mouse pass through the overlay to whatever is behind it.
     pub click_through: bool,
     pub always_on_top: bool,
-    /// Config lines this build does not manage, kept verbatim so saving does not
-    /// throw away settings written by another version.
-    extras: Vec<(String, String)>,
 }
 
 impl Config {
-    /// The configuration as ordered `name`/`value` pairs. This is the single
-    /// source of truth for what the file contains.
-    fn entries(&self) -> Vec<(String, String)> {
-        let mut entries: Vec<(String, String)> = Vec::with_capacity(32 + self.extras.len());
-
-        let mut push = |name: String, value: String| entries.push((name, value));
-        push("keyAmount".into(), self.key_amount.to_string());
-        for (index, key) in self.keys.iter().enumerate() {
-            push(format!("key{}", index + 1), key.clone());
-        }
-        for (index, display) in self.display_keys.iter().enumerate() {
-            push(format!("displayKey{}", index + 1), display.clone());
-        }
-        push("keyCounter".into(), yes_no(self.key_counter));
-        push("windowHeight".into(), self.window_height.to_string());
-        push("windowWidth".into(), self.window_width.to_string());
-        push("keySize".into(), self.key_size.to_string());
-        push("barSpeed".into(), format_float(self.bar_speed));
-        push("margin".into(), self.margin.to_string());
-        push(
-            "outlineThickness".into(),
-            self.outline_thickness.to_string(),
-        );
-        push("fading".into(), yes_no(self.fading));
-        push("backgroundColor".into(), color_text(self.background_color));
-        push("keyColor".into(), color_text(self.key_color));
-        push("borderColor".into(), color_text(self.border_color));
-        push("barColor".into(), color_text(self.bar_color));
-        push("fontColor".into(), color_text(self.font_color));
-        push("pressFontColor".into(), color_text(self.press_font_color));
-        push("backgroundImage".into(), self.background_image.clone());
-        push("maxFPS".into(), self.max_fps.to_string());
-        push("language".into(), self.language.code().to_string());
-        push("uiScale".into(), format_float(self.ui_scale));
-        push(
-            "transparentBackground".into(),
-            yes_no(self.transparent_background),
-        );
-        push("clickThrough".into(), yes_no(self.click_through));
-        push("alwaysOnTop".into(), yes_no(self.always_on_top));
-        for (name, value) in &self.extras {
-            push(name.clone(), value.clone());
-        }
-        entries
-    }
-
     /// Adds a key with an unused letter as its binding, widening the overlay so
     /// the keys already there keep their spacing.
     pub fn add_key(&mut self) {
@@ -126,7 +68,6 @@ impl Config {
         let step = self.key_step();
         self.keys.push(candidate);
         self.display_keys.push(String::new());
-        self.key_amount += 1;
         self.window_width = self.window_width.saturating_add(step);
     }
 
@@ -136,8 +77,7 @@ impl Config {
         if index < self.keys.len() {
             let step = self.key_step();
             self.keys.remove(index);
-            self.display_keys.remove(index);
-            self.key_amount = self.keys.len() as u32;
+            self.display_keys.truncate(self.keys.len());
             self.window_width = self
                 .window_width
                 .saturating_sub(step)
@@ -148,7 +88,7 @@ impl Config {
     /// Room one key takes at the current spacing.
     fn key_step(&self) -> u32 {
         layout::key_step(
-            self.key_amount,
+            self.keys.len() as u32,
             self.key_size,
             self.outline_thickness,
             self.margin,
@@ -160,124 +100,187 @@ impl Config {
     /// back.
     fn minimum_width(&self) -> u32 {
         let width = (self.key_size + self.outline_thickness * 2).max(1) as u32;
-        (self.margin.max(0) as u32 * 2).saturating_add(width * self.key_amount)
+        (self.margin.max(0) as u32 * 2).saturating_add(width * self.keys.len() as u32)
     }
 }
 
 pub fn load(dir: &Path, file_name: &str) -> Result<Config, String> {
     let path = resolve(dir, file_name);
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
         // First run, or the file was deleted: leave the template behind so
         // there is something to edit, and carry on with it.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             std::fs::write(&path, TEMPLATE)
                 .map_err(|e| format!("Could not write {}: {e}", path.display()))?;
-            TEMPLATE.as_bytes().to_vec()
+            TEMPLATE.to_string()
         }
         Err(error) => return Err(format!("Could not read {}: {error}", path.display())),
     };
-    let text = String::from_utf8(bytes)
-        .map_err(|e| format!("{} is not valid UTF-8: {e}", path.display()))?;
-    // A config.txt copied from the original has a UTF-8 BOM.
+    // A file saved by a Windows editor may carry a BOM.
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let document = text
+        .parse::<DocumentMut>()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
 
-    let mut entries: HashMap<&str, &str> = HashMap::new();
-    // The file's own order, so keys this build does not manage keep their place
-    // instead of coming back in hash order.
-    let mut ordered: Vec<(&str, &str)> = Vec::new();
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        // Blank lines and `#`/`;` comments are ignored, so the shipped
-        // config.txt can document itself.
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
-            continue;
-        }
-        let mut parts = line.splitn(3, '=');
-        let name = parts.next().unwrap_or_default();
-        let Some(value) = parts.next() else {
-            return Err(format!("{}: line without '=': {line}", path.display()));
-        };
-        if entries.insert(name, value).is_some() {
-            return Err(format!(
-                "{}: duplicate config key \"{name}\"",
-                path.display()
-            ));
-        }
-        ordered.push((name, value));
+    let missing = |name: &str| format!("{}: there is no {name} key", path.display());
+    let wrong = |name: &str, what: &str| format!("{}: {name} must be {what}", path.display());
+
+    let mut keys = Vec::new();
+    for (index, entry) in list(&document, "keys", &path)?.iter().enumerate() {
+        let name = entry
+            .as_str()
+            .ok_or_else(|| wrong(&format!("keys[{index}]"), "a string"))?;
+        keys.push(name.to_string());
     }
-
-    let get = |name: &str| -> Result<&str, String> {
-        entries
-            .get(name)
-            .copied()
-            .ok_or_else(|| format!("{}: missing config key \"{name}\"", path.display()))
-    };
-
-    let window_width = uint(get("windowWidth")?, "windowWidth")?;
-    let window_height = uint(get("windowHeight")?, "windowHeight")?;
-    let key_amount = uint(get("keyAmount")?, "keyAmount")?;
-
-    let mut keys = Vec::with_capacity(key_amount as usize);
-    let mut display_keys = Vec::with_capacity(key_amount as usize);
-    for index in 1..=key_amount {
-        keys.push(get(&format!("key{index}"))?.to_string());
-        display_keys.push(
-            entries
-                .get(format!("displayKey{index}").as_str())
-                .copied()
-                .unwrap_or_default()
-                .to_string(),
-        );
+    let mut display_keys = Vec::new();
+    if let Ok(entries) = list(&document, "display_keys", &path) {
+        for entry in entries {
+            display_keys.push(entry.as_str().unwrap_or_default().to_string());
+        }
     }
+    display_keys.resize(keys.len(), String::new());
 
     let config = Config {
-        window_width,
-        window_height,
-        key_amount,
+        window_width: uint(&document, "window_width", &path)?,
+        window_height: uint(&document, "window_height", &path)?,
         keys,
         display_keys,
-        key_size: int(get("keySize")?, "keySize")?,
-        bar_speed: float(get("barSpeed")?, "barSpeed")?,
-        margin: int(get("margin")?, "margin")?,
-        outline_thickness: int(get("outlineThickness")?, "outlineThickness")?,
-        fading: get("fading")? == "yes",
-        key_counter: get("keyCounter")? == "yes",
-        background_image: get("backgroundImage")?.to_string(),
-        background_color: color(get("backgroundColor")?, "backgroundColor")?,
-        key_color: color(get("keyColor")?, "keyColor")?,
-        border_color: color(get("borderColor")?, "borderColor")?,
-        bar_color: color(get("barColor")?, "barColor")?,
-        font_color: color(get("fontColor")?, "fontColor")?,
-        press_font_color: color(get("pressFontColor")?, "pressFontColor")?,
-        max_fps: uint(get("maxFPS")?, "maxFPS")?,
-        // Absent means "follow the Windows UI language".
-        language: entries
+        key_size: int(&document, "key_size", &path)?,
+        bar_speed: float(&document, "bar_speed", &path)?,
+        margin: int(&document, "margin", &path)?,
+        outline_thickness: int(&document, "outline_thickness", &path)?,
+        fading: boolean(&document, "fading", &path)?,
+        key_counter: boolean(&document, "key_counter", &path)?,
+        background_image: document
+            .get("background_image")
+            .and_then(Item::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        background_color: color(&document, "background_color", &path)?,
+        key_color: color(&document, "key_color", &path)?,
+        border_color: color(&document, "border_color", &path)?,
+        bar_color: color(&document, "bar_color", &path)?,
+        font_color: color(&document, "font_color", &path)?,
+        press_font_color: color(&document, "press_font_color", &path)?,
+        max_fps: uint(&document, "max_fps", &path)?,
+        // Absent or empty means "follow the Windows UI language".
+        language: document
             .get("language")
-            .and_then(|value| Language::parse(value))
+            .and_then(Item::as_str)
+            .and_then(Language::parse)
             .unwrap_or_else(Language::system),
-        ui_scale: entries
-            .get("uiScale")
-            .map(|value| float(value, "uiScale"))
-            .transpose()?
+        ui_scale: document
+            .get("ui_scale")
+            .and_then(Item::as_float)
+            .map(|value| value as f32)
             .unwrap_or(1.0)
             .clamp(0.5, 4.0),
-        // New in this build; absent from older config.txt files.
-        transparent_background: entries.get("transparentBackground").copied() == Some("yes"),
-        click_through: entries.get("clickThrough").copied() == Some("yes"),
-        always_on_top: entries.get("alwaysOnTop").copied() == Some("yes"),
-        extras: Vec::new(),
+        transparent_background: flag(&document, "transparent_background"),
+        click_through: flag(&document, "click_through"),
+        always_on_top: flag(&document, "always_on_top"),
     };
 
-    Ok(Config {
-        extras: unmanaged(&ordered, &config),
-        ..config
-    })
+    if config.keys.is_empty() {
+        return Err(missing("keys"));
+    }
+    Ok(config)
 }
 
-/// Where `config.txt` lives: next to the executable as shipped, or - for
-/// `cargo run`, where the executable sits in `target/` - in the working
-/// directory.
+pub fn save(dir: &Path, file_name: &str, config: &Config) -> Result<(), String> {
+    let path = resolve(dir, file_name);
+    // Saving into the template keeps every comment when the file is gone.
+    let existing = std::fs::read_to_string(&path).unwrap_or_else(|_| TEMPLATE.to_string());
+    let mut document = existing
+        .parse::<DocumentMut>()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+
+    set(&mut document, "keys", strings(&config.keys));
+    set(&mut document, "display_keys", strings(&config.display_keys));
+    set(
+        &mut document,
+        "window_width",
+        value(config.window_width as i64),
+    );
+    set(
+        &mut document,
+        "window_height",
+        value(config.window_height as i64),
+    );
+    set(&mut document, "key_size", value(config.key_size as i64));
+    set(&mut document, "bar_speed", value(config.bar_speed as f64));
+    set(&mut document, "margin", value(config.margin as i64));
+    set(
+        &mut document,
+        "outline_thickness",
+        value(config.outline_thickness as i64),
+    );
+    set(&mut document, "fading", value(config.fading));
+    set(&mut document, "key_counter", value(config.key_counter));
+    set(
+        &mut document,
+        "background_image",
+        value(config.background_image.as_str()),
+    );
+    set(
+        &mut document,
+        "background_color",
+        value(hex(config.background_color)),
+    );
+    set(&mut document, "key_color", value(hex(config.key_color)));
+    set(
+        &mut document,
+        "border_color",
+        value(hex(config.border_color)),
+    );
+    set(&mut document, "bar_color", value(hex(config.bar_color)));
+    set(&mut document, "font_color", value(hex(config.font_color)));
+    set(
+        &mut document,
+        "press_font_color",
+        value(hex(config.press_font_color)),
+    );
+    set(&mut document, "max_fps", value(config.max_fps as i64));
+    set(&mut document, "language", value(config.language.code()));
+    set(&mut document, "ui_scale", value(config.ui_scale as f64));
+    set(
+        &mut document,
+        "transparent_background",
+        value(config.transparent_background),
+    );
+    set(&mut document, "click_through", value(config.click_through));
+    set(&mut document, "always_on_top", value(config.always_on_top));
+
+    std::fs::write(&path, document.to_string())
+        .map_err(|e| format!("Could not write {}: {e}", path.display()))
+}
+
+/// Replaces a value while keeping the comments around it: the key's own decor
+/// (the lines above) and the value's (a trailing comment on the same line).
+fn set(document: &mut DocumentMut, name: &str, new: Item) {
+    match document.get_mut(name) {
+        Some(existing) => {
+            let decor = existing.as_value().map(|value| value.decor().clone());
+            let mut new = new;
+            if let (Some(decor), Some(value)) = (decor, new.as_value_mut()) {
+                *value.decor_mut() = decor;
+            }
+            *existing = new;
+        }
+        None => document[name] = new,
+    }
+}
+
+fn strings(values: &[String]) -> Item {
+    let mut array = Array::new();
+    for value in values {
+        array.push(value.as_str());
+    }
+    value(array)
+}
+
+/// Where the configuration lives: next to the executable as shipped, or - for
+/// `cargo run` and the like - in the working directory.
 fn resolve(dir: &Path, file_name: &str) -> PathBuf {
     let next_to_executable = dir.join(file_name);
     if next_to_executable.is_file() {
@@ -290,171 +293,100 @@ fn resolve(dir: &Path, file_name: &str) -> PathBuf {
     next_to_executable
 }
 
-/// Writes the configuration back, replacing the file `load` read.
-pub fn save(dir: &Path, file_name: &str, config: &Config) -> Result<(), String> {
-    let path = resolve(dir, file_name);
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    std::fs::write(&path, merge(&existing, config))
-        .map_err(|e| format!("Could not write {}: {e}", path.display()))
-}
-
-/// Rewrites the managed values in place, so comments, ordering and settings this
-/// build does not know about survive a save from the settings window. Missing
-/// keys are appended; a managed key that appears twice keeps only the first.
-fn merge(existing: &str, config: &Config) -> String {
-    let managed = config.entries();
-    let mut written = vec![false; managed.len()];
-    let mut text = String::with_capacity(existing.len() + 256);
-
-    for line in existing.lines() {
-        let trimmed = line.trim_start();
-        let is_comment = trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';');
-        if !is_comment
-            && let Some(name) = line.split('=').next()
-            && let Some(index) = managed.iter().position(|(key, _)| key == name)
-        {
-            if !written[index] {
-                push_line(&mut text, &managed[index].0, &managed[index].1);
-                written[index] = true;
-            }
-            continue;
-        }
-        text.push_str(line);
-        text.push('\n');
-    }
-
-    for (index, (name, value)) in managed.iter().enumerate() {
-        if !written[index] {
-            push_line(&mut text, name, value);
-        }
-    }
-    text
-}
-
-/// Names handled by this build; everything else is kept verbatim.
-fn managed_names(config: &Config) -> Vec<String> {
-    let mut names = vec![
-        "keyAmount".to_string(),
-        "keyCounter".to_string(),
-        "windowHeight".to_string(),
-        "windowWidth".to_string(),
-        "keySize".to_string(),
-        "barSpeed".to_string(),
-        "margin".to_string(),
-        "outlineThickness".to_string(),
-        "fading".to_string(),
-        "backgroundColor".to_string(),
-        "keyColor".to_string(),
-        "borderColor".to_string(),
-        "barColor".to_string(),
-        "fontColor".to_string(),
-        "pressFontColor".to_string(),
-        "backgroundImage".to_string(),
-        "maxFPS".to_string(),
-        "language".to_string(),
-        "uiScale".to_string(),
-        "transparentBackground".to_string(),
-        "clickThrough".to_string(),
-        "alwaysOnTop".to_string(),
-    ];
-    for index in 1..=config.key_amount as usize {
-        names.push(format!("key{index}"));
-        names.push(format!("displayKey{index}"));
-    }
-    names
-}
-
-/// Config lines this build does not manage, in the order the file has them.
-fn unmanaged(entries: &[(&str, &str)], config: &Config) -> Vec<(String, String)> {
-    let managed = managed_names(config);
-    entries
-        .iter()
-        .filter(|(name, _)| !managed.iter().any(|managed| managed == name))
-        // `key5`/`displayKey5` left over from a larger key set would collide
-        // with keys added later, so they are dropped rather than kept.
-        .filter(|(name, _)| !is_indexed_key(name))
-        .map(|(name, value)| ((*name).to_string(), (*value).to_string()))
-        .collect()
-}
-
-fn is_indexed_key(name: &str) -> bool {
-    let digits = name
-        .strip_prefix("displayKey")
-        .or_else(|| name.strip_prefix("key"))
-        .unwrap_or("");
-    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
-}
-
-fn yes_no(value: bool) -> String {
-    if value {
-        "yes".to_string()
-    } else {
-        "no".to_string()
-    }
-}
-
-/// One `name=value` line.
-fn push_line(text: &mut String, name: &str, value: &str) {
-    text.push_str(name);
-    text.push('=');
-    text.push_str(value);
-    text.push_str("\r\n");
-}
-
-fn color_text(color: Color) -> String {
-    format!("{},{},{},{}", color.r, color.g, color.b, color.a)
-}
-
-/// `barSpeed` was parsed with `float.Parse`, so keep a round-trippable form.
-fn format_float(value: f32) -> String {
-    let text = format!("{value}");
-    if text.contains(['.', 'e', 'E']) {
-        text
-    } else {
-        format!("{text}.0")
-    }
-}
-
-fn int(value: &str, name: &str) -> Result<i32, String> {
-    value
-        .trim()
-        .parse()
-        .map_err(|_| format!("config: {name} = \"{value}\" is not an integer"))
-}
-
-fn uint(value: &str, name: &str) -> Result<u32, String> {
-    value
-        .trim()
-        .parse()
-        .map_err(|_| format!("config: {name} = \"{value}\" is not a positive integer"))
-}
-
-fn float(value: &str, name: &str) -> Result<f32, String> {
-    value
-        .trim()
-        .parse()
-        .map_err(|_| format!("config: {name} = \"{value}\" is not a number"))
-}
-
-/// `r,g,b,a` with 0-255 components; extra components are ignored, like the
-/// original `Convert.ToByte` chain.
-fn color(value: &str, name: &str) -> Result<Color, String> {
-    let mut parts = value.split(',');
-    let mut bytes = [0u8; 4];
-    for byte in &mut bytes {
-        let part = parts.next().ok_or_else(|| {
-            format!("config: {name} = \"{value}\" needs 4 comma separated values")
-        })?;
-        *byte = part.trim().parse().map_err(|_| {
-            format!("config: {name} = \"{value}\": \"{part}\" is not a value in 0-255")
-        })?;
-    }
-    Ok(Color {
-        r: bytes[0],
-        g: bytes[1],
-        b: bytes[2],
-        a: bytes[3],
+fn uint(document: &DocumentMut, name: &str, path: &Path) -> Result<u32, String> {
+    let value = integer(document, name, path)?;
+    u32::try_from(value).map_err(|_| {
+        format!(
+            "{}: {name} = {value} is not a positive number",
+            path.display()
+        )
     })
+}
+
+fn int(document: &DocumentMut, name: &str, path: &Path) -> Result<i32, String> {
+    let value = integer(document, name, path)?;
+    i32::try_from(value).map_err(|_| {
+        format!(
+            "{}: {name} = {value} does not fit in a number",
+            path.display()
+        )
+    })
+}
+
+fn integer(document: &DocumentMut, name: &str, path: &Path) -> Result<i64, String> {
+    document
+        .get(name)
+        .and_then(Item::as_integer)
+        .ok_or_else(|| format!("{}: {name} must be a whole number", path.display()))
+}
+
+fn float(document: &DocumentMut, name: &str, path: &Path) -> Result<f32, String> {
+    document
+        .get(name)
+        .and_then(Item::as_float)
+        .map(|value| value as f32)
+        .ok_or_else(|| format!("{}: {name} must be a number", path.display()))
+}
+
+fn boolean(document: &DocumentMut, name: &str, path: &Path) -> Result<bool, String> {
+    document
+        .get(name)
+        .and_then(Item::as_bool)
+        .ok_or_else(|| format!("{}: {name} must be true or false", path.display()))
+}
+
+fn flag(document: &DocumentMut, name: &str) -> bool {
+    document.get(name).and_then(Item::as_bool).unwrap_or(false)
+}
+
+fn color(document: &DocumentMut, name: &str, path: &Path) -> Result<Color, String> {
+    let text = document.get(name).and_then(Item::as_str).ok_or_else(|| {
+        format!(
+            "{}: {name} must be a colour like \"#RRGGBBAA\"",
+            path.display()
+        )
+    })?;
+    parse_color(text).ok_or_else(|| {
+        format!(
+            "{}: {name} = \"{text}\" is not a colour like \"#RRGGBBAA\"",
+            path.display()
+        )
+    })
+}
+
+fn list<'a>(document: &'a DocumentMut, name: &str, path: &Path) -> Result<&'a Array, String> {
+    document
+        .get(name)
+        .and_then(Item::as_array)
+        .ok_or_else(|| format!("{}: there is no {name} list", path.display()))
+}
+
+/// `#RRGGBB` (opaque) or `#RRGGBBAA`.
+fn parse_color(text: &str) -> Option<Color> {
+    let digits = text.strip_prefix('#')?;
+    let number = u32::from_str_radix(digits, 16).ok()?;
+    match digits.len() {
+        6 => Some(Color {
+            r: (number >> 16) as u8,
+            g: (number >> 8) as u8,
+            b: number as u8,
+            a: 255,
+        }),
+        8 => Some(Color {
+            r: (number >> 24) as u8,
+            g: (number >> 16) as u8,
+            b: (number >> 8) as u8,
+            a: number as u8,
+        }),
+        _ => None,
+    }
+}
+
+fn hex(color: Color) -> String {
+    format!(
+        "#{:02X}{:02X}{:02X}{:02X}",
+        color.r, color.g, color.b, color.a
+    )
 }
 
 #[cfg(test)]
@@ -465,7 +397,6 @@ mod tests {
         Config {
             window_width: 240,
             window_height: 700,
-            key_amount: 2,
             keys: vec!["Z".into(), "X".into()],
             display_keys: vec![String::new(), "跳".into()],
             key_size: 70,
@@ -517,7 +448,6 @@ mod tests {
             transparent_background: false,
             click_through: false,
             always_on_top: false,
-            extras: vec![("fromAnotherBuild".into(), "1".into())],
         }
     }
 
@@ -529,71 +459,11 @@ mod tests {
     }
 
     #[test]
-    fn save_keeps_comments_and_unknown_keys() {
-        let dir = scratch("save-comments");
-        let file = "config.txt";
-        std::fs::write(
-            dir.join(file),
-            "# how many keys\nkeyAmount=9\nkey1=Q\n\n# a newer build wrote this\nfutureOption=42\n",
-        )
-        .unwrap();
-
-        save(&dir, file, &sample()).unwrap();
-
-        let written = std::fs::read_to_string(dir.join(file)).unwrap();
-        assert!(
-            written.contains("# how many keys"),
-            "comments must survive: {written}"
-        );
-        assert!(
-            written.contains("futureOption=42"),
-            "unknown keys must survive: {written}"
-        );
-        assert!(
-            written.contains("keyAmount=2"),
-            "managed values must be updated: {written}"
-        );
-        assert!(
-            written.contains("displayKey2=跳"),
-            "new values must be written: {written}"
-        );
-        // and the result still loads, which is what the app does next time
-        let reloaded = load(&dir, file).unwrap();
-        assert_eq!(reloaded.key_amount, 2);
-        assert_eq!(reloaded.keys, vec!["Z".to_string(), "X".to_string()]);
-        // the file's unknown key is kept as well as the ones this build read
-        let unknown: Vec<&str> = reloaded
-            .extras
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect();
-        assert_eq!(unknown, vec!["futureOption", "fromAnotherBuild"]);
-        // and no key is written twice
-        assert_eq!(reloaded.extras.len(), 2);
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// Distance between the first two squares, i.e. what the user sees as the
-    /// gap between keys.
-    fn spacing(config: &Config) -> f32 {
-        let squares = crate::layout::create_squares(
-            config.key_amount,
-            config.outline_thickness,
-            config.key_size,
-            config.margin,
-            config.window_width,
-            1.0,
-        );
-        squares[1].x - squares[0].x
-    }
-
-    #[test]
     fn a_missing_config_is_created_from_the_shipped_template() {
         let dir = scratch("first-run");
         // A name that cannot exist in the working directory, so the lookup
         // lands on the path next to the executable.
-        let file = format!("first-run-{}.txt", std::process::id());
+        let file = format!("first-run-{}.toml", std::process::id());
 
         let config = load(&dir, &file).unwrap();
 
@@ -602,11 +472,91 @@ mod tests {
             written.lines().any(|line| line.starts_with('#')),
             "the file created on first run has nothing to explain it: {written}"
         );
+        assert_eq!(config.keys, vec!["Z".to_string(), "X".to_string()]);
         // and the next start reads back what this one used
         let reloaded = load(&dir, &file).unwrap();
-        assert_eq!(reloaded.key_amount, config.key_amount);
         assert_eq!(reloaded.window_width, config.window_width);
         assert_eq!(reloaded.key_size, config.key_size);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_keeps_comments_and_unknown_keys() {
+        let dir = scratch("save-comments");
+        let file = "config.toml";
+        let mut document = TEMPLATE.to_string();
+        document.push_str("\n# a newer build wrote this\nfuture_option = 42\n");
+        std::fs::write(dir.join(file), &document).unwrap();
+
+        save(&dir, file, &sample()).unwrap();
+
+        let written = std::fs::read_to_string(dir.join(file)).unwrap();
+        assert!(
+            written.contains("# distance from the window edge"),
+            "the template's comments must survive: {written}"
+        );
+        assert!(
+            written.contains("future_option = 42"),
+            "unknown keys must survive: {written}"
+        );
+        assert!(
+            written.contains("key_size = 70"),
+            "managed values must be written: {written}"
+        );
+        assert!(
+            written.contains("keys = [\"Z\", \"X\"]"),
+            "the key list must be written: {written}"
+        );
+        // and the result still loads, which is what the app does next time
+        let reloaded = load(&dir, file).unwrap();
+        assert_eq!(reloaded.keys, vec!["Z".to_string(), "X".to_string()]);
+        assert_eq!(reloaded.display_keys[1], "跳");
+        assert_eq!(reloaded.bar_color.a, 100);
+        assert_eq!(reloaded.language, Language::Zh);
+
+        // a second save is a no-op, so the file stays stable
+        save(&dir, file, &reloaded).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join(file)).unwrap(), written);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_key_with_a_custom_label_loads() {
+        let dir = scratch("labels");
+        let file = "config.toml";
+        let text = TEMPLATE.replace(
+            "keys = [\"Z\", \"X\"]\ndisplay_keys = [\"\", \"\"]",
+            "keys = [\"Z,跳\", \"MouseLeft\"]\ndisplay_keys = [\"\", \"click\"]",
+        );
+        std::fs::write(dir.join(file), text).unwrap();
+
+        let config = load(&dir, file).unwrap();
+        assert_eq!(config.keys.len(), 2);
+        assert_eq!(config.keys[0], "Z,跳");
+        assert_eq!(config.display_keys[1], "click");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_colour_must_be_hex() {
+        let dir = scratch("colour");
+        let file = "config.toml";
+        let text = TEMPLATE.replace(
+            "background_color = \"#000000FF\"",
+            "background_color = \"black\"",
+        );
+        std::fs::write(dir.join(file), text).unwrap();
+
+        let Err(error) = load(&dir, file) else {
+            panic!("a colour that is not hex should be rejected");
+        };
+        assert!(
+            error.contains("background_color"),
+            "the error should name the key: {error}"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -616,7 +566,7 @@ mod tests {
         let mut config = sample();
         let before = spacing(&config);
         config.add_key();
-        assert_eq!(config.key_amount, 3);
+        assert_eq!(config.keys.len(), 3);
         let after = spacing(&config);
         assert!(
             (after - before).abs() < 1.5,
@@ -631,7 +581,7 @@ mod tests {
         let width_before = config.window_width;
         let spacing_before = spacing(&config);
         config.remove_key(2);
-        assert_eq!(config.key_amount, 2);
+        assert_eq!(config.keys.len(), 2);
         assert!(
             config.window_width < width_before,
             "window stayed {} wide after a key was removed",
@@ -643,22 +593,17 @@ mod tests {
         );
     }
 
-    #[test]
-    fn config_with_comments_loads() {
-        let dir = scratch("load-comments");
-        let file = "config.txt";
-        let text: String = sample()
-            .entries()
-            .iter()
-            .map(|(name, value)| format!("# {name}\n{name}={value}\n"))
-            .collect();
-        std::fs::write(dir.join(file), text).unwrap();
-
-        let config = load(&dir, file).unwrap();
-        assert_eq!(config.key_amount, 2);
-        assert_eq!(config.display_keys[1], "跳");
-        assert!(config.fading);
-
-        let _ = std::fs::remove_dir_all(&dir);
+    /// Distance between the first two squares, i.e. what the user sees as the
+    /// gap between keys.
+    fn spacing(config: &Config) -> f32 {
+        let squares = crate::layout::create_squares(
+            config.keys.len() as u32,
+            config.outline_thickness,
+            config.key_size,
+            config.margin,
+            config.window_width,
+            1.0,
+        );
+        squares[1].x - squares[0].x
     }
 }

@@ -1,9 +1,9 @@
-//! `config.txt` key names -> virtual key codes.
+//! `config.toml` key names -> virtual key codes.
 //!
 //! The table is a 1:1 copy of SFML's Win32 backend
 //! (`src/SFML/Window/Win32/InputImpl.cpp`, tag 2.5.0), including the member order
 //! of `sf::Keyboard::Key` (SFML 2.5) and `sf::Mouse::Button`, so existing
-//! `config.txt` files keep working unchanged.
+//! `config.toml` files keep working unchanged.
 //!
 //! `Enum.TryParse` in SFML.Net is case sensitive and also accepts numeric
 //! strings (e.g. `key1=5`), which is not supported here - use the names.

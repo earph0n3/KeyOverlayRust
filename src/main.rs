@@ -231,17 +231,20 @@ impl Overlay {
         };
 
         if let Some(window) = &self.window {
-            let _ = window.request_inner_size(PhysicalSize::new(
-                self.config.window_width,
-                self.config.window_height,
-            ));
             window.set_window_level(if self.config.always_on_top {
                 WindowLevel::AlwaysOnTop
             } else {
                 WindowLevel::Normal
             });
-            // A transparent overlay is meant to be frameless.
+            // A transparent overlay is meant to be frameless. The frame has to
+            // be settled before the size is asked for: adding one keeps the
+            // window's outer size, so a client size request made while frameless
+            // would leave the client 22x56 short once the frame is back.
             window.set_decorations(!self.config.transparent_background);
+            let _ = window.request_inner_size(PhysicalSize::new(
+                self.config.window_width,
+                self.config.window_height,
+            ));
         }
         if let Some(presenter) = self.presenter.as_mut() {
             presenter.set_topmost(self.config.always_on_top);

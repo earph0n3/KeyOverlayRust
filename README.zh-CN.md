@@ -46,8 +46,8 @@ cargo build --release --locked
 cargo run --locked
 ```
 
-Release 可执行文件位于 `target/release/keyoverlay.exe`。如果找不到配置文件，程序会把
-带完整注释的 `config.toml` 写到可执行文件旁边，并用其中的默认值启动。
+Release 可执行文件位于 `target/release/keyoverlay.exe`。如果找不到配置文件，程序会把带完整
+注释的 `config.toml` 和空的 `Resources/` 目录写到可执行文件旁边，然后用其中的默认值启动。
 
 如果要使用其他配置文件，把文件名或路径作为第一个参数传入：
 
@@ -96,6 +96,8 @@ border_color = "#FFFFFFFF"
 bar_color = "#FFFFFF64"
 font_color = "#FFFFFFFF"
 press_font_color = "#FFFFFFFF"
+background_image = ""
+background_mode = "original" # original、stretch、fill、fit、tile
 
 transparent_background = false
 click_through = false
@@ -111,6 +113,16 @@ ui_scale = 1.0
 
 原 C# 版本的 `config.txt` 与这个重写版不兼容，请从仓库里的 `config.toml` 模板开始。
 在设置窗口中保存时，文件里的注释和未知 TOML 配置项会保留。
+
+`background_mode` 控制背景图的显示方式：
+
+| 值 | 行为 |
+| --- | --- |
+| `original` | 从左上角按原始尺寸绘制。 |
+| `stretch` | 不保持比例，拉伸到铺满整个窗口。 |
+| `fill` | 保持比例并铺满窗口，超出部分裁剪。 |
+| `fit` | 保持比例完整显示，空出的部分使用 `background_color`。 |
+| `tile` | 按原始尺寸重复平铺。 |
 
 ## 透明背景与窗口行为
 
@@ -129,13 +141,18 @@ alpha 取决于捕获方式。「游戏捕获」只捕获游戏本身，不会�
 
 ## 背景图
 
-把 PNG 或 JPEG 放到可执行文件旁边的 `Resources/` 目录中，再在 `config.toml` 设置文件名：
+首次运行会在可执行文件旁边创建空的 `Resources/` 目录。把 PNG 或 JPEG 放进去后，设置窗口
+会扫描目录，并以列表展示可用文件；点击当前文件即可选择其他图片，也可以选择「无」来关闭
+背景图。
+
+选中的文件写入 `background_image`：
 
 ```toml
 background_image = "keyboard.png"
+background_mode = "fill"
 ```
 
-图片会从窗口左上角开始，以原始尺寸绘制。背景图缺失或无法读取时，程序会跳过它并报告问题，
+图片会按 `background_mode` 的设置绘制。背景图缺失或无法读取时，程序会跳过它并报告问题，
 不会因此阻止悬浮层启动。
 
 ## 故障排查

@@ -11,10 +11,11 @@
 use std::path::Path;
 
 use tiny_skia::{
-    BlendMode, Color as SkColor, IntSize, Paint, Pixmap, PixmapPaint, Rect, Transform,
+    BlendMode, Color as SkColor, FilterQuality, IntSize, Paint, Pixmap, PixmapPaint, Rect,
+    Transform,
 };
 
-use crate::config::Color;
+use crate::config::{BackgroundMode, Color};
 use crate::layout::Square;
 use crate::state::KeySlot;
 use crate::text::TextPainter;
@@ -41,6 +42,7 @@ pub struct Renderer {
     origin_y: f32,
     fading: Option<Pixmap>,
     background: Option<Pixmap>,
+    background_mode: BackgroundMode,
 }
 
 impl Renderer {
@@ -54,6 +56,7 @@ impl Renderer {
         fading: bool,
         background_color: Color,
         background_image: &str,
+        background_mode: BackgroundMode,
         resources_dir: &Path,
     ) -> Result<Self, String> {
         // A background image is decoration, so one that moved or was deleted
@@ -81,6 +84,7 @@ impl Renderer {
                 None
             },
             background,
+            background_mode,
         })
     }
 
@@ -100,14 +104,7 @@ impl Renderer {
         ));
 
         if let Some(image) = &self.background {
-            pm.draw_pixmap(
-                0,
-                0,
-                image.as_ref(),
-                &PixmapPaint::default(),
-                Transform::identity(),
-                None,
-            );
+            draw_background(pm, image, self.background_mode);
         }
 
         // Squares and key labels (`_staticDrawables`).
@@ -223,6 +220,65 @@ impl Renderer {
                 ..PixmapPaint::default()
             };
             pm.draw_pixmap(0, 0, fading.as_ref(), &paint, Transform::identity(), None);
+        }
+    }
+}
+
+fn draw_background(pm: &mut Pixmap, image: &Pixmap, mode: BackgroundMode) {
+    let destination_width = pm.width() as f32;
+    let destination_height = pm.height() as f32;
+    let image_width = image.width() as f32;
+    let image_height = image.height() as f32;
+    if destination_width <= 0.0
+        || destination_height <= 0.0
+        || image_width <= 0.0
+        || image_height <= 0.0
+    {
+        return;
+    }
+
+    let paint = PixmapPaint {
+        quality: FilterQuality::Bilinear,
+        ..PixmapPaint::default()
+    };
+    let mut draw = |x: f32, y: f32, scale_x: f32, scale_y: f32| {
+        let transform = Transform::from_translate(x, y).pre_scale(scale_x, scale_y);
+        pm.draw_pixmap(0, 0, image, &paint, transform, None);
+    };
+
+    match mode {
+        BackgroundMode::Original => draw(0.0, 0.0, 1.0, 1.0),
+        BackgroundMode::Stretch => draw(
+            0.0,
+            0.0,
+            destination_width / image_width,
+            destination_height / image_height,
+        ),
+        BackgroundMode::Fill | BackgroundMode::Fit => {
+            let scale = if mode == BackgroundMode::Fill {
+                (destination_width / image_width).max(destination_height / image_height)
+            } else {
+                (destination_width / image_width).min(destination_height / image_height)
+            };
+            let width = image_width * scale;
+            let height = image_height * scale;
+            draw(
+                (destination_width - width) / 2.0,
+                (destination_height - height) / 2.0,
+                scale,
+                scale,
+            );
+        }
+        BackgroundMode::Tile => {
+            let mut y = 0.0;
+            while y < destination_height {
+                let mut x = 0.0;
+                while x < destination_width {
+                    draw(x, y, 1.0, 1.0);
+                    x += image_width;
+                }
+                y += image_height;
+            }
         }
     }
 }

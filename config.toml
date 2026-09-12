@@ -26,6 +26,7 @@ bar_color = "#FFFFFF64"
 font_color = "#FFFFFFFF"
 press_font_color = "#FFFFFFFF"
 background_image = ""     # file name inside Resources/, "" for none
+background_mode = "original" # original, stretch, fill, fit, or tile
 
 fading = true             # squares fade back after a hit
 key_counter = false       # count the hits in the corner

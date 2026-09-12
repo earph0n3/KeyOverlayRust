@@ -642,6 +642,39 @@ pub fn button(
     ui.clicked_in(rect)
 }
 
+pub fn list_item(
+    ui: &mut Ui,
+    pm: &mut Pixmap,
+    text: &str,
+    rect: Rect,
+    selected: bool,
+    painter: &mut TextPainter,
+) -> bool {
+    let m = ui.m;
+    let t = theme();
+    let fill = if selected {
+        t.accent
+    } else if ui.hovered(rect) {
+        t.control_hot
+    } else {
+        t.row
+    };
+    panel(pm, rect, fill);
+
+    let area = rect.inset(m.px(8.0));
+    let (width, height) = painter.measure(text, m.small);
+    warn_if_overflow(text, width, area);
+    painter.draw_at(
+        pm,
+        text,
+        area.x,
+        rect.y + (rect.h - height) / 2.0,
+        m.small,
+        t.text,
+    );
+    ui.clicked_in(rect)
+}
+
 pub fn toggle(
     ui: &mut Ui,
     pm: &mut Pixmap,

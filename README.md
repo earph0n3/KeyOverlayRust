@@ -54,8 +54,9 @@ cargo run --locked
 ```
 
 The release executable is `target/release/keyoverlay.exe`. If no configuration
-file exists, the program creates a commented `config.toml` beside the
-executable and starts with the documented defaults.
+file exists, the program creates a commented `config.toml` and an empty
+`Resources/` directory beside the executable, then starts with the documented
+defaults.
 
 To use another configuration file, pass its name or path as the first argument:
 
@@ -107,6 +108,8 @@ border_color = "#FFFFFFFF"
 bar_color = "#FFFFFF64"
 font_color = "#FFFFFFFF"
 press_font_color = "#FFFFFFFF"
+background_image = ""
+background_mode = "original" # original, stretch, fill, fit, or tile
 
 transparent_background = false
 click_through = false
@@ -124,6 +127,16 @@ Colors use `#RRGGBB` or `#RRGGBBAA`.
 The old C# build's `config.txt` is not compatible with this rewrite. Start from
 the included `config.toml` template instead. Saving through the settings window
 keeps comments and unknown TOML keys in the file.
+
+`background_mode` controls how the selected image is drawn:
+
+| Value | Behavior |
+| --- | --- |
+| `original` | Draw at the original size from the top-left corner. |
+| `stretch` | Stretch independently to the full window size. |
+| `fill` | Preserve the aspect ratio and crop the overflow. |
+| `fit` | Preserve the aspect ratio and leave `background_color` around the image. |
+| `tile` | Repeat the image at its original size. |
 
 ## Transparency and window behavior
 
@@ -146,16 +159,21 @@ overlay; use a desktop or window capture mode when the overlay must be visible.
 
 ## Background images
 
-Place a PNG or JPEG beside the executable under `Resources/`, then set its file
-name in `config.toml`:
+The first run creates an empty `Resources/` directory beside the executable.
+Place PNG or JPEG files there. The settings window scans that directory and
+shows the available files in a list; click the current file to choose another
+one, or choose `(none)` to disable the background.
+
+The selected file is stored in `background_image`:
 
 ```toml
 background_image = "keyboard.png"
+background_mode = "fill"
 ```
 
-The image is drawn from the top-left corner at its original size. A missing or
-unreadable background image is skipped and reported without preventing the
-overlay from starting.
+The image is rendered according to `background_mode`. A missing or unreadable
+background image is skipped and reported without preventing the overlay from
+starting.
 
 ## Troubleshooting
 

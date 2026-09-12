@@ -24,6 +24,62 @@ pub struct Color {
     pub a: u8,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackgroundMode {
+    Original,
+    Stretch,
+    Fill,
+    Fit,
+    Tile,
+}
+
+impl Default for BackgroundMode {
+    fn default() -> Self {
+        Self::Original
+    }
+}
+
+impl BackgroundMode {
+    pub const ALL: [Self; 5] = [
+        Self::Original,
+        Self::Stretch,
+        Self::Fill,
+        Self::Fit,
+        Self::Tile,
+    ];
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Original => "original",
+            Self::Stretch => "stretch",
+            Self::Fill => "fill",
+            Self::Fit => "fit",
+            Self::Tile => "tile",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "original" => Some(Self::Original),
+            "stretch" => Some(Self::Stretch),
+            "fill" => Some(Self::Fill),
+            "fit" => Some(Self::Fit),
+            "tile" => Some(Self::Tile),
+            _ => None,
+        }
+    }
+
+    pub fn index(self) -> usize {
+        match self {
+            Self::Original => 0,
+            Self::Stretch => 1,
+            Self::Fill => 2,
+            Self::Fit => 3,
+            Self::Tile => 4,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub window_width: u32,
@@ -39,6 +95,7 @@ pub struct Config {
     pub fading: bool,
     pub key_counter: bool,
     pub background_image: String,
+    pub background_mode: BackgroundMode,
     pub background_color: Color,
     pub key_color: Color,
     pub border_color: Color,
@@ -104,7 +161,14 @@ impl Config {
     }
 }
 
+pub fn ensure_resources(dir: &Path) -> Result<(), String> {
+    let resources = dir.join("Resources");
+    std::fs::create_dir_all(&resources)
+        .map_err(|error| format!("Could not create {}: {error}", resources.display()))
+}
+
 pub fn load(dir: &Path, file_name: &str) -> Result<Config, String> {
+    ensure_resources(dir)?;
     let path = resolve(dir, file_name);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
@@ -157,6 +221,11 @@ pub fn load(dir: &Path, file_name: &str) -> Result<Config, String> {
             .and_then(Item::as_str)
             .unwrap_or_default()
             .to_string(),
+        background_mode: document
+            .get("background_mode")
+            .and_then(Item::as_str)
+            .and_then(BackgroundMode::parse)
+            .unwrap_or_default(),
         background_color: color(&document, "background_color", &path)?,
         key_color: color(&document, "key_color", &path)?,
         border_color: color(&document, "border_color", &path)?,
@@ -221,6 +290,11 @@ pub fn save(dir: &Path, file_name: &str, config: &Config) -> Result<(), String> 
         &mut document,
         "background_image",
         value(config.background_image.as_str()),
+    );
+    set(
+        &mut document,
+        "background_mode",
+        value(config.background_mode.code()),
     );
     set(
         &mut document,
@@ -411,6 +485,7 @@ mod tests {
             fading: true,
             key_counter: false,
             background_image: String::new(),
+            background_mode: BackgroundMode::Original,
             background_color: Color {
                 r: 0,
                 g: 0,
@@ -471,6 +546,10 @@ mod tests {
         let file = format!("first-run-{}.toml", std::process::id());
 
         let config = load(&dir, &file).unwrap();
+        assert!(
+            dir.join("Resources").is_dir(),
+            "first run must create the Resources directory"
+        );
 
         let written = std::fs::read_to_string(dir.join(&file)).unwrap();
         assert!(
@@ -482,6 +561,28 @@ mod tests {
         let reloaded = load(&dir, &file).unwrap();
         assert_eq!(reloaded.window_width, config.window_width);
         assert_eq!(reloaded.key_size, config.key_size);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn background_mode_defaults_for_old_files_and_round_trips() {
+        let dir = scratch("background-mode");
+        let file = "config.toml";
+        let old_template = TEMPLATE.replace(
+            "background_mode = \"original\" # original, stretch, fill, fit, or tile\n",
+            "",
+        );
+        std::fs::write(dir.join(file), old_template).unwrap();
+
+        let old_config = load(&dir, file).unwrap();
+        assert_eq!(old_config.background_mode, BackgroundMode::Original);
+
+        let mut config = sample();
+        config.background_mode = BackgroundMode::Fill;
+        save(&dir, file, &config).unwrap();
+        let reloaded = load(&dir, file).unwrap();
+        assert_eq!(reloaded.background_mode, BackgroundMode::Fill);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

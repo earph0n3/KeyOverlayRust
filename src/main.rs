@@ -219,6 +219,7 @@ impl Overlay {
                 self.config.fading,
                 self.config.background_color,
                 &self.config.background_image,
+                self.config.background_mode,
                 &self.executable_dir.join("Resources"),
             )
             .map_err(StartupError::Config)?,

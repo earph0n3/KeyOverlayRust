@@ -1,9 +1,9 @@
 //! Settings window: an immediate-mode panel over the live configuration.
 //!
-//! Edits are applied to the running configuration immediately (`changed`), the
-//! preview pane mirrors the overlay, and `Save` writes `config.txt` back.
-//! Labels are English on purpose: they match the `config.txt` key names and keep
-//! the UI on the embedded font, so the build stays a single dependency-free exe.
+//! Edits are applied to the running configuration immediately (`changed`); the
+//! preview pane mirrors the overlay, and `Save` writes `config.toml` back.
+//! Labels match the configuration names while the interface itself supports
+//! English and Chinese.
 
 use std::path::Path;
 use std::time::Instant;
@@ -13,7 +13,7 @@ use tiny_skia::{
 };
 
 use crate::Fonts;
-use crate::config::{Color, Config};
+use crate::config::{BackgroundMode, Color, Config};
 use crate::input;
 use crate::keys;
 use crate::lang;
@@ -53,6 +53,8 @@ pub struct Settings {
     capture_armed: bool,
     candidates: Vec<(&'static str, u32)>,
     images: Vec<String>,
+    background_menu_open: bool,
+    background_mode_menu_open: bool,
     status: Option<(String, Instant)>,
 }
 
@@ -68,11 +70,13 @@ impl Settings {
             capture_armed: true,
             candidates: keys::capture_candidates(),
             images: Vec::new(),
+            background_menu_open: false,
+            background_mode_menu_open: false,
             status: None,
         })
     }
 
-    /// Images offered for `backgroundImage`, taken from `Resources/`.
+    /// Images offered for `background_image`, taken from `Resources/`.
     pub fn rescan(&mut self, resources_dir: &Path) {
         self.images.clear();
         self.images.push(String::new());
@@ -82,7 +86,7 @@ impl Settings {
                 .map(|entry| entry.file_name().to_string_lossy().to_string())
                 .filter(|name| {
                     let lower = name.to_ascii_lowercase();
-                    [".png", ".jpg", ".jpeg", ".bmp", ".gif"]
+                    [".png", ".jpg", ".jpeg"]
                         .iter()
                         .any(|extension| lower.ends_with(extension))
                 })
@@ -822,7 +826,30 @@ impl Settings {
         m: ui::Metrics,
     ) -> f32 {
         let t = lang::text(config.language);
-        let rect = Rect::new(rect.x, rect.y, rect.w, m.px(40.0) + 4.0 * m.row);
+        let missing_image = !config.background_image.is_empty()
+            && !self
+                .images
+                .iter()
+                .any(|name| name == &config.background_image);
+        let mut image_names = self.images.clone();
+        if image_names.is_empty() {
+            image_names.push(String::new());
+        }
+        if missing_image {
+            image_names.insert(0, config.background_image.clone());
+        }
+        let image_menu_rows = if self.background_menu_open {
+            image_names.len()
+        } else {
+            0
+        };
+        let mode_menu_rows = if self.background_mode_menu_open {
+            BackgroundMode::ALL.len()
+        } else {
+            0
+        };
+        let rows = 5 + image_menu_rows + mode_menu_rows;
+        let rect = Rect::new(rect.x, rect.y, rect.w, m.px(40.0) + rows as f32 * m.row);
         let inner = self.section(pm, rect, t.section_window, m);
         let theme = ui::theme();
         let mut y = inner.y;
@@ -863,78 +890,114 @@ impl Settings {
             &mut self.painter,
         );
 
-        let row = row_rect(inner, &mut y, m);
+        let image_row = row_rect(inner, &mut y, m);
         ui::label(
             pm,
             t.background_image,
-            Rect::new(row.x, row.y, m.px(136.0), row.h),
+            Rect::new(image_row.x, image_row.y, m.px(136.0), image_row.h),
             m.text,
             theme.text_dim,
             &mut self.painter,
         );
-
-        let position = self
-            .images
-            .iter()
-            .position(|name| *name == config.background_image);
-        if ui::button(
-            &mut self.ui,
-            pm,
-            "<",
-            Rect::new(row.x + m.px(140.0), row.y, m.px(26.0), row.h),
-            &mut self.painter,
-        ) {
-            let index = position.unwrap_or(0);
-            let next = if index == 0 {
-                self.images.len().saturating_sub(1)
-            } else {
-                index - 1
-            };
-            if let Some(name) = self.images.get(next).cloned() {
-                config.background_image = name;
-                changed = true;
-            }
-        }
-
-        let name_rect = Rect::new(
-            row.x + m.px(170.0),
-            row.y,
-            (row.w - m.px(204.0)).max(m.px(80.0)),
-            row.h,
+        let image_button = Rect::new(
+            image_row.x + m.px(136.0),
+            image_row.y,
+            (image_row.w - m.px(136.0)).max(m.px(80.0)),
+            image_row.h,
         );
-        ui::panel(pm, name_rect, theme.row);
-        let name = if config.background_image.is_empty() {
+        let image_label = if config.background_image.is_empty() {
             t.none.to_string()
-        } else if position.is_none() {
+        } else if missing_image {
             format!("{}{}", config.background_image, t.missing_suffix)
         } else {
             config.background_image.clone()
         };
+        if ui::button(
+            &mut self.ui,
+            pm,
+            &image_label,
+            image_button,
+            &mut self.painter,
+        ) {
+            self.background_menu_open = !self.background_menu_open;
+            self.background_mode_menu_open = false;
+        }
+
+        if self.background_menu_open {
+            for name in &image_names {
+                let item = Rect::new(
+                    image_button.x,
+                    y,
+                    image_button.w,
+                    m.row,
+                );
+                let label = if name.is_empty() {
+                    t.none.to_string()
+                } else if missing_image && name == &config.background_image {
+                    format!("{}{}", name, t.missing_suffix)
+                } else {
+                    name.clone()
+                };
+                let selected = name == &config.background_image;
+                if ui::list_item(
+                    &mut self.ui,
+                    pm,
+                    &label,
+                    item,
+                    selected,
+                    &mut self.painter,
+                ) {
+                    config.background_image = name.clone();
+                    self.background_menu_open = false;
+                    changed = true;
+                }
+                y += m.row;
+            }
+        }
+
+        let mode_row = row_rect(inner, &mut y, m);
         ui::label(
             pm,
-            &name,
-            Rect::new(
-                name_rect.x + m.px(8.0),
-                name_rect.y,
-                name_rect.w - m.px(16.0),
-                row.h,
-            ),
-            m.small,
-            theme.text,
+            t.background_mode,
+            Rect::new(mode_row.x, mode_row.y, m.px(136.0), mode_row.h),
+            m.text,
+            theme.text_dim,
             &mut self.painter,
         );
+        let mode_button = Rect::new(
+            mode_row.x + m.px(136.0),
+            mode_row.y,
+            (mode_row.w - m.px(136.0)).max(m.px(80.0)),
+            mode_row.h,
+        );
+        let mode_label = t.background_modes[config.background_mode.index()];
+        if ui::button(
+            &mut self.ui,
+            pm,
+            mode_label,
+            mode_button,
+            &mut self.painter,
+        ) {
+            self.background_mode_menu_open = !self.background_mode_menu_open;
+            self.background_menu_open = false;
+        }
 
-        let next_button = Rect::new(row.right() - m.px(28.0), row.y, m.px(26.0), row.h);
-        if ui::button(&mut self.ui, pm, ">", next_button, &mut self.painter) {
-            let index = position.unwrap_or(0);
-            let next = if self.images.is_empty() || index + 1 >= self.images.len() {
-                0
-            } else {
-                index + 1
-            };
-            if let Some(name) = self.images.get(next).cloned() {
-                config.background_image = name;
-                changed = true;
+        if self.background_mode_menu_open {
+            for mode in BackgroundMode::ALL {
+                let item = Rect::new(mode_button.x, y, mode_button.w, m.row);
+                if ui::list_item(
+                    &mut self.ui,
+                    pm,
+                    t.background_modes[mode.index()],
+                    item,
+                    mode == config.background_mode,
+                    &mut self.painter,
+                ) {
+                    config.background_mode = mode;
+                    self.background_mode_menu_open = false;
+                    changed = true;
+                }
+                y += m.row;
             }
         }
 

@@ -166,10 +166,10 @@ pub fn theme() -> Theme {
 pub struct Ui {
     /// Layout metrics for the current frame, set by `begin`.
     pub m: Metrics,
-    /// Numeric field that currently owns the keyboard, if any.
+    /// Field that currently owns the keyboard, if any.
     editing: Option<Edit>,
     /// Value typed into a field, handed to its widget on the frame the edit ends.
-    committed: Option<(u64, f32)>,
+    committed: Option<(u64, Committed)>,
     pub mouse: (f32, f32),
     pub pressed: bool,
     pub released: bool,
@@ -200,6 +200,14 @@ struct Edit {
     text: String,
     /// True until the first keystroke, so typing replaces the shown value.
     fresh: bool,
+    /// Number fields take digits and a decimal point, text fields take anything.
+    numeric: bool,
+}
+
+/// What a field handed back when its edit ended.
+enum Committed {
+    Number(f32),
+    Text(String),
 }
 
 impl Ui {
@@ -244,23 +252,29 @@ impl Ui {
         self.editing.as_ref().map(|edit| edit.id)
     }
 
-    fn begin_edit(&mut self, id: u64, text: String) {
+    fn begin_edit(&mut self, id: u64, text: String, numeric: bool) {
         self.editing = Some(Edit {
             id,
             text,
             fresh: true,
+            numeric,
         });
     }
 
-    /// Routes a typed character to the focused field. Only digits and a decimal
-    /// point are accepted; most fields hold whole numbers, but the same buffer
-    /// serves the fractional ones.
+    /// Routes a typed character to the focused field. Number fields take digits
+    /// and a decimal point; text fields take anything printable, up to 24
+    /// characters (a key label is a character or two).
     pub fn type_char(&mut self, ch: char) {
         let Some(edit) = self.editing.as_mut() else {
             return;
         };
-        let ch = if ch == ',' { '.' } else { ch };
-        if !(ch.is_ascii_digit() || ch == '.') || edit.text.len() >= 6 {
+        if edit.numeric {
+            let ch = if ch == ',' { '.' } else { ch };
+            if !(ch.is_ascii_digit() || ch == '.') || edit.text.len() >= 6 {
+                return;
+            }
+        } else if ch.is_control() || edit.text.chars().count() >= 24 {
+            // Control characters have their own events (Enter ends the edit).
             return;
         }
         if edit.fresh {
@@ -283,8 +297,14 @@ impl Ui {
         let Some(edit) = self.editing.take() else {
             return;
         };
-        if let Ok(value) = edit.text.trim().parse::<f32>() {
-            self.committed = Some((edit.id, value));
+        let committed = if edit.numeric {
+            // A half-typed number is dropped rather than applied.
+            edit.text.trim().parse::<f32>().ok().map(Committed::Number)
+        } else {
+            Some(Committed::Text(edit.text.trim().to_string()))
+        };
+        if let Some(committed) = committed {
+            self.committed = Some((edit.id, committed));
         }
     }
 
@@ -306,11 +326,14 @@ impl Ui {
         if self.pressed && self.editing_id() == Some(id) && !rect.contains(self.mouse) {
             self.end_edit();
         }
-        let committed = self.take_committed(id);
+        let committed = match self.take_committed(id) {
+            Some(Committed::Number(value)) => Some(value),
+            _ => None,
+        };
         // Draws the shown value, or the in-progress text and its caret.
         self.value_box(pm, id, rect, value_text, m, painter);
         if self.clicked_in(rect) && self.editing_id() != Some(id) {
-            self.begin_edit(id, value_text.to_string());
+            self.begin_edit(id, value_text.to_string(), true);
         }
         committed
     }
@@ -330,13 +353,13 @@ impl Ui {
     }
 
     /// Hands the value typed into field `id` back to its widget, once.
-    fn take_committed(&mut self, id: u64) -> Option<f32> {
-        match self.committed {
-            Some((committed_id, value)) if committed_id == id => {
-                self.committed = None;
-                Some(value)
+    fn take_committed(&mut self, id: u64) -> Option<Committed> {
+        match self.committed.take() {
+            Some((committed_id, value)) if committed_id == id => Some(value),
+            other => {
+                self.committed = other;
+                None
             }
-            _ => None,
         }
     }
 
@@ -379,6 +402,62 @@ impl Ui {
             if editing { t.text } else { t.text_dim },
         );
         editing
+    }
+
+    /// A one-line text field, such as a key's display name. Returns the typed
+    /// text once, on the frame the edit ends; `placeholder` is drawn dim while
+    /// the field is empty.
+    pub fn text_field(
+        &mut self,
+        pm: &mut Pixmap,
+        rect: Rect,
+        value: &str,
+        placeholder: &str,
+        m: Metrics,
+        painter: &mut TextPainter,
+    ) -> Option<String> {
+        let id = self.id();
+        let t = theme();
+        // Clicking anywhere else commits what was typed, like the value boxes.
+        if self.pressed && self.editing_id() == Some(id) && !rect.contains(self.mouse) {
+            self.end_edit();
+        }
+        let committed = match self.take_committed(id) {
+            Some(Committed::Text(text)) => Some(text),
+            _ => None,
+        };
+
+        let editing = self.editing_id() == Some(id);
+        let hot = rect.contains(self.mouse);
+        panel(pm, rect, if hot { t.control_hot } else { t.row });
+        if editing {
+            fill_rect(pm, rect.x, rect.y, m.px(2.0), rect.h, t.accent);
+        }
+        let typed = match self.editing.as_ref().filter(|edit| edit.id == id) {
+            Some(edit) => edit.text.as_str(),
+            None => value,
+        };
+        let (shown, color) = if typed.is_empty() && !editing {
+            (placeholder, t.text_dim)
+        } else {
+            (typed, t.text)
+        };
+        let area = rect.inset(m.px(8.0));
+        let (width, height) = painter.measure(shown, m.small);
+        warn_if_overflow(shown, width, area);
+        painter.draw_at(
+            pm,
+            shown,
+            area.x,
+            rect.y + (rect.h - height) / 2.0,
+            m.small,
+            color,
+        );
+
+        if self.clicked_in(rect) && !editing {
+            self.begin_edit(id, value.to_string(), false);
+        }
+        committed
     }
 
     /// Horizontal slider with a read-out box that can also be typed into: the
@@ -448,7 +527,7 @@ impl Ui {
         }
 
         // A value that was typed into the read-out box.
-        if let Some(typed) = self.take_committed(id) {
+        if let Some(Committed::Number(typed)) = self.take_committed(id) {
             let next = snap(typed, min, max, step);
             if next != *value {
                 *value = next;
@@ -469,7 +548,7 @@ impl Ui {
         let editing = self.value_box(pm, id, value_rect, &text, m, painter);
 
         if self.clicked_in(value_rect) && !editing {
-            self.begin_edit(id, text);
+            self.begin_edit(id, text, true);
         }
 
         changed
@@ -608,4 +687,39 @@ pub fn toggle(
         return true;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Typing goes through one buffer for every field, so the two kinds have to
+    /// stay apart: a key label is text, a slider read-out is a number.
+    #[test]
+    fn text_fields_take_letters_and_number_fields_do_not() {
+        let mut ui = Ui::default();
+        ui.begin(Metrics::new(1.0));
+
+        let label = ui.id();
+        ui.begin_edit(label, String::new(), false);
+        for ch in "跳A1".chars() {
+            ui.type_char(ch);
+        }
+        ui.end_edit();
+        assert!(
+            matches!(ui.take_committed(label), Some(Committed::Text(text)) if text == "跳A1"),
+            "a text field must keep what was typed into it"
+        );
+
+        let number = ui.id();
+        ui.begin_edit(number, "70".to_string(), true);
+        for ch in "1x2跳.5".chars() {
+            ui.type_char(ch);
+        }
+        ui.end_edit();
+        assert!(
+            matches!(ui.take_committed(number), Some(Committed::Number(value)) if value == 12.5),
+            "a number field must ignore anything but digits and a decimal point"
+        );
+    }
 }

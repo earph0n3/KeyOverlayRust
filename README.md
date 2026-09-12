@@ -61,6 +61,11 @@ English and Chinese; the button in the top right switches instantly and `Save`
 remembers it (`language = "en"` / `"zh"`, empty = follow the Windows UI
 language).
 
+Key display names are typed straight into the Keys section: click the box next to
+a binding and type. The window accepts an input method, so a Chinese label (跳,
+say) can be typed as well as Latin ones; an empty box means the key keeps its own
+name.
+
 Chinese needs a CJK face. The bundled Consolas has none, so the UI and the
 overlay fall back to a system font (`msyh.ttc`, then `Deng.ttf`, `simhei.ttf`,
 ...). Without any of them the settings window stays in English; Chinese

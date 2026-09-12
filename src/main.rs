@@ -39,7 +39,7 @@ use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETWORKAREA, SystemParametersInfoW};
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, Ime, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Icon, Window, WindowId, WindowLevel};
 
@@ -417,6 +417,8 @@ impl App {
                 let _ = surface.resize(width, height);
             }
             self.settings_pixmap = Pixmap::new(size.width, size.height);
+            // So a key label can be typed with an input method, not just ASCII.
+            window.set_ime_allowed(true);
             self.settings.rescan(&self.executable_dir.join("Resources"));
             center_on_screen(&window);
             self.settings_scale = ui_scale(&self.overlay.config, window.scale_factor() as f32);
@@ -709,6 +711,14 @@ impl ApplicationHandler<UserEvent> for App {
                     if event.state == ElementState::Pressed =>
                 {
                     self.settings_key(&event);
+                }
+                // What an IME (a Chinese input method, say) committed. Input
+                // methods deliver here rather than as `KeyboardInput.text`.
+                WindowEvent::Ime(Ime::Commit(text)) => {
+                    let ui = self.settings.ui_mut();
+                    for ch in text.chars() {
+                        ui.type_char(ch);
+                    }
                 }
                 _ => {}
             }

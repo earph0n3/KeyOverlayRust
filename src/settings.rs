@@ -127,6 +127,10 @@ impl Settings {
         let Some(index) = self.capture else {
             return false;
         };
+        // A field has the keyboard: that is typing, not choosing a binding.
+        if self.ui.is_editing() {
+            return false;
+        }
         if !self.capture_armed {
             // Wait until the click that armed the capture is released again.
             if !self
@@ -538,26 +542,17 @@ impl Settings {
                 (row.w - m.px(210.0) - m.px(34.0)).max(m.px(60.0)),
                 m.row,
             );
-            ui::panel(pm, display_rect, theme.row);
             let display = config.display_keys.get(index).cloned().unwrap_or_default();
-            let (shown, color) = if display.is_empty() {
-                (t.key_name.to_string(), theme.text_dim)
-            } else {
-                (display, theme.text)
-            };
-            ui::label(
-                pm,
-                &shown,
-                Rect::new(
-                    display_rect.x + m.px(8.0),
-                    display_rect.y,
-                    display_rect.w - m.px(16.0),
-                    m.row,
-                ),
-                m.small,
-                color,
-                &mut self.painter,
-            );
+            if let Some(text) =
+                self.ui
+                    .text_field(pm, display_rect, &display, t.key_name, m, &mut self.painter)
+            {
+                if config.display_keys.len() <= index {
+                    config.display_keys.resize(index + 1, String::new());
+                }
+                config.display_keys[index] = text;
+                outcome.changed = true;
+            }
 
             if ui::button(
                 &mut self.ui,

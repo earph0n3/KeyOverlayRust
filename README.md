@@ -62,9 +62,8 @@ remembers it (`language = "en"` / `"zh"`, empty = follow the Windows UI
 language).
 
 Key display names are typed straight into the Keys section: click the box next to
-a binding and type. The window accepts an input method, so a Chinese label (跳,
-say) can be typed as well as Latin ones; an empty box means the key keeps its own
-name.
+a binding and type. The window accepts an input method, so a Chinese label can be
+typed as well as a Latin one; an empty box means the key keeps its own name.
 
 Chinese needs a CJK face. The bundled Consolas has none, so the UI and the
 overlay fall back to a system font (`msyh.ttc`, then `Deng.ttf`, `simhei.ttf`,
@@ -127,7 +126,7 @@ can carry comments, real booleans, one list per group of keys, and `#RRGGBBAA`
 colours:
 
 ```toml
-keys = ["Z", "X"]           # "Z,跳" shows 跳 instead of the key name
+keys = ["Z", "X"]           # "Z,space" shows "space" instead of the key name
 key_size = 70               # height of a square, in pixels
 fading = true               # squares fade back after a hit
 background_color = "#000000FF"

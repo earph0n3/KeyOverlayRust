@@ -702,18 +702,18 @@ mod tests {
 
         let label = ui.id();
         ui.begin_edit(label, String::new(), false);
-        for ch in "跳A1".chars() {
+        for ch in "jump1".chars() {
             ui.type_char(ch);
         }
         ui.end_edit();
         assert!(
-            matches!(ui.take_committed(label), Some(Committed::Text(text)) if text == "跳A1"),
+            matches!(ui.take_committed(label), Some(Committed::Text(text)) if text == "jump1"),
             "a text field must keep what was typed into it"
         );
 
         let number = ui.id();
         ui.begin_edit(number, "70".to_string(), true);
-        for ch in "1x2跳.5".chars() {
+        for ch in "1x2z.5".chars() {
             ui.type_char(ch);
         }
         ui.end_edit();

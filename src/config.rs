@@ -393,12 +393,17 @@ fn hex(color: Color) -> String {
 mod tests {
     use super::*;
 
+    /// A label that needs the CJK fallback font: the tests use it so a display
+    /// name keeps surviving the file as UTF-8, which is what display names are
+    /// for in the first place.
+    const CJK_LABEL: &str = "跳";
+
     fn sample() -> Config {
         Config {
             window_width: 240,
             window_height: 700,
             keys: vec!["Z".into(), "X".into()],
-            display_keys: vec![String::new(), "跳".into()],
+            display_keys: vec![String::new(), CJK_LABEL.into()],
             key_size: 70,
             bar_speed: 600.0,
             margin: 25,
@@ -511,7 +516,7 @@ mod tests {
         // and the result still loads, which is what the app does next time
         let reloaded = load(&dir, file).unwrap();
         assert_eq!(reloaded.keys, vec!["Z".to_string(), "X".to_string()]);
-        assert_eq!(reloaded.display_keys[1], "跳");
+        assert_eq!(reloaded.display_keys[1], CJK_LABEL);
         assert_eq!(reloaded.bar_color.a, 100);
         assert_eq!(reloaded.language, Language::Zh);
 
@@ -528,13 +533,13 @@ mod tests {
         let file = "config.toml";
         let text = TEMPLATE.replace(
             "keys = [\"Z\", \"X\"]\ndisplay_keys = [\"\", \"\"]",
-            "keys = [\"Z,跳\", \"MouseLeft\"]\ndisplay_keys = [\"\", \"click\"]",
+            &format!("keys = [\"Z,{CJK_LABEL}\", \"MouseLeft\"]\ndisplay_keys = [\"\", \"click\"]"),
         );
         std::fs::write(dir.join(file), text).unwrap();
 
         let config = load(&dir, file).unwrap();
         assert_eq!(config.keys.len(), 2);
-        assert_eq!(config.keys[0], "Z,跳");
+        assert_eq!(config.keys[0], format!("Z,{CJK_LABEL}"));
         assert_eq!(config.display_keys[1], "click");
 
         let _ = std::fs::remove_dir_all(&dir);

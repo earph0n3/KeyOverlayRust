@@ -54,7 +54,7 @@ target/release/keyoverlay.exe
 留空表示跟随 Windows 界面语言）。
 
 按键的显示名可以直接在「按键」区块里输入：点绑定按钮右边的格子打字即可。窗口接受输入法，
-所以中文字（比如 `跳`）和拉丁字母都能直接输入；格子留空表示沿用按键自身的名字。
+所以中文和拉丁字母都能直接输入；格子留空表示沿用按键自身的名字。
 
 中文需要 CJK 字体。内置的 Consolas 没有中文字形，所以界面和悬浮层会回退到系统字体
 （`msyh.ttc`，其次 `Deng.ttf`、`simhei.ttf`……）。系统里一个都找不到时，设置窗口会保持
@@ -107,7 +107,7 @@ target/release/keyoverlay.exe
 `#RRGGBBAA` 颜色：
 
 ```toml
-keys = ["Z", "X"]           # "Z,跳" 表示显示"跳"而不是键名
+keys = ["Z", "X"]           # "Z,space" 表示显示 "space" 而不是键名
 key_size = 70               # 方块高度，单位像素
 fading = true               # 击打后方块渐隐
 background_color = "#000000FF"

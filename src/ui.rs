@@ -166,8 +166,10 @@ pub fn theme() -> Theme {
 pub struct Ui {
     /// Layout metrics for the current frame, set by `begin`.
     pub m: Metrics,
-    /// Widget that currently owns keyboard input, if any.
-    pub focused: Option<u64>,
+    /// Numeric field that currently owns the keyboard, if any.
+    editing: Option<Edit>,
+    /// Value typed into a field, handed to its widget on the frame the edit ends.
+    committed: Option<(u64, f32)>,
     pub mouse: (f32, f32),
     pub pressed: bool,
     pub released: bool,
@@ -180,7 +182,8 @@ impl Default for Ui {
     fn default() -> Self {
         Self {
             m: Metrics::new(1.0),
-            focused: None,
+            editing: None,
+            committed: None,
             mouse: (0.0, 0.0),
             pressed: false,
             released: false,
@@ -189,6 +192,14 @@ impl Default for Ui {
             next_id: 0,
         }
     }
+}
+
+/// A numeric field being typed into.
+struct Edit {
+    id: u64,
+    text: String,
+    /// True until the first keystroke, so typing replaces the shown value.
+    fresh: bool,
 }
 
 impl Ui {
@@ -224,7 +235,92 @@ impl Ui {
         self.next_id
     }
 
-    /// True when a press inside `rect` was released inside `rect` on this frame.
+    /// True while a value box owns the keyboard.
+    pub fn is_editing(&self) -> bool {
+        self.editing.is_some()
+    }
+
+    fn editing_id(&self) -> Option<u64> {
+        self.editing.as_ref().map(|edit| edit.id)
+    }
+
+    fn begin_edit(&mut self, id: u64, text: String) {
+        self.editing = Some(Edit {
+            id,
+            text,
+            fresh: true,
+        });
+    }
+
+    /// Routes a typed character to the focused field. Only digits and a decimal
+    /// point are accepted; most fields hold whole numbers, but the same buffer
+    /// serves the fractional ones.
+    pub fn type_char(&mut self, ch: char) {
+        let Some(edit) = self.editing.as_mut() else {
+            return;
+        };
+        let ch = if ch == ',' { '.' } else { ch };
+        if !(ch.is_ascii_digit() || ch == '.') || edit.text.len() >= 6 {
+            return;
+        }
+        if edit.fresh {
+            edit.text.clear();
+            edit.fresh = false;
+        }
+        edit.text.push(ch);
+    }
+
+    pub fn backspace(&mut self) {
+        if let Some(edit) = self.editing.as_mut() {
+            edit.fresh = false;
+            edit.text.pop();
+        }
+    }
+
+    /// Ends the edit; the widget that owns the field applies the value on its
+    /// next draw.
+    pub fn end_edit(&mut self) {
+        let Some(edit) = self.editing.take() else {
+            return;
+        };
+        if let Ok(value) = edit.text.trim().parse::<f32>() {
+            self.committed = Some((edit.id, value));
+        }
+    }
+
+    pub fn cancel_edit(&mut self) {
+        self.editing = None;
+    }
+
+    /// A standalone numeric field (not part of a slider): returns the typed
+    /// value once, on the frame the edit ends.
+    pub fn field(
+        &mut self,
+        pm: &mut Pixmap,
+        rect: Rect,
+        value_text: &str,
+        m: Metrics,
+        painter: &mut TextPainter,
+    ) -> Option<f32> {
+        let id = self.id();
+        if self.pressed && self.editing_id() == Some(id) && !rect.contains(self.mouse) {
+            self.end_edit();
+        }
+        let committed = self.take_committed(id);
+        // Draws the shown value, or the in-progress text and its caret.
+        self.value_box(pm, id, rect, value_text, m, painter);
+        if self.clicked_in(rect) && self.editing_id() != Some(id) {
+            self.begin_edit(id, value_text.to_string());
+        }
+        committed
+    }
+
+    /// True while the pointer sits over `rect`.
+    pub fn hovered(&self, rect: Rect) -> bool {
+        rect.contains(self.mouse)
+    }
+
+    /// True when a press and the matching release both happened inside `rect`.
     pub fn clicked_in(&self, rect: Rect) -> bool {
         self.released
             && self
@@ -233,16 +329,66 @@ impl Ui {
             && rect.contains(self.mouse)
     }
 
-    fn hovered(&self, rect: Rect) -> bool {
-        rect.contains(self.mouse)
+    /// Hands the value typed into field `id` back to its widget, once.
+    fn take_committed(&mut self, id: u64) -> Option<f32> {
+        match self.committed {
+            Some((committed_id, value)) if committed_id == id => {
+                self.committed = None;
+                Some(value)
+            }
+            _ => None,
+        }
     }
 
-    /// Horizontal slider over a fixed range, snapped to `step`.
+    /// The read-out next to a slider. It looks like a plain label until it is
+    /// clicked, then it takes the keyboard and shows what is being typed.
+    /// Returns true while it owns the keyboard.
+    fn value_box(
+        &mut self,
+        pm: &mut Pixmap,
+        id: u64,
+        rect: Rect,
+        text: &str,
+        m: Metrics,
+        painter: &mut TextPainter,
+    ) -> bool {
+        let t = theme();
+        let editing = self.editing_id() == Some(id);
+        let hot = rect.contains(self.mouse);
+        let fill = if editing || hot {
+            t.control_hot
+        } else {
+            t.control
+        };
+        panel(pm, rect, fill);
+        if editing {
+            fill_rect(pm, rect.x, rect.y, m.px(2.0), rect.h, t.accent);
+        }
+        let shown = match self.editing.as_ref().filter(|edit| edit.id == id) {
+            Some(edit) => edit.text.as_str(),
+            None => text,
+        };
+        let (width, height) = painter.measure(shown, m.text);
+        warn_if_overflow(shown, width, rect.inset(m.px(6.0)));
+        painter.draw_at(
+            pm,
+            shown,
+            rect.x + (rect.w - width) / 2.0,
+            rect.y + (rect.h - height) / 2.0,
+            m.text,
+            if editing { t.text } else { t.text_dim },
+        );
+        editing
+    }
+
+    /// Horizontal slider with a read-out box that can also be typed into: the
+    /// bar is for coarse dragging, the box for exact values. Returns true on the
+    /// frame the value changed.
     #[allow(clippy::too_many_arguments)]
     pub fn slider(
         &mut self,
         pm: &mut Pixmap,
-        text: &str,
+        label: &str,
         rect: Rect,
         value: &mut f32,
         min: f32,
@@ -251,90 +397,93 @@ impl Ui {
         display: impl Fn(f32) -> String,
         painter: &mut TextPainter,
     ) -> bool {
-        let theme = theme();
-        let m = self.m;
         let id = self.id();
-        let label_width = m.px(132.0).min(rect.w * 0.4);
-        let value_width = m.px(62.0);
+        let m = self.m;
+        let t = theme();
+        let mut changed = false;
+
+        let label_w = m.px(125.0);
+        let box_w = m.px(62.0);
+        let gap = m.px(8.0);
         let track = Rect::new(
-            rect.x + label_width,
-            rect.y + rect.h / 2.0 - m.px(7.0),
-            (rect.w - label_width - value_width - m.px(8.0)).max(m.px(40.0)),
-            m.px(14.0),
+            rect.x + label_w,
+            rect.y + m.px(5.0),
+            (rect.w - label_w - box_w - gap).max(m.px(40.0)),
+            rect.h - m.px(10.0),
+        );
+        let value_rect = Rect::new(track.right() + gap, rect.y, box_w, rect.h);
+
+        // Clicking anywhere else commits what was typed, like the plain fields.
+        if self.pressed && self.editing_id() == Some(id) && !value_rect.contains(self.mouse) {
+            self.end_edit();
+        }
+
+        let (width, height) = painter.measure(label, m.small);
+        warn_if_overflow(
+            label,
+            width,
+            Rect::new(rect.x, rect.y, label_w - m.px(8.0), rect.h),
+        );
+        painter.draw_at(
+            pm,
+            label,
+            rect.x,
+            rect.y + (rect.h - height) / 2.0,
+            m.small,
+            t.text_dim,
         );
 
-        let mut changed = false;
-        if self.pressed
-            && track.contains(self.mouse)
-            && self
-                .press_origin
-                .is_some_and(|origin| track.contains(origin))
-        {
+        // Pressing the bar starts a drag that follows the pointer until the
+        // button comes up.
+        if self.pressed && self.editing_id() != Some(id) && track.contains(self.mouse) {
             self.active = Some(id);
         }
         if self.pressed && self.active == Some(id) {
-            let ratio = ((self.mouse.0 - track.x) / track.w).clamp(0.0, 1.0);
-            let next = (((min + ratio * (max - min)) / step).round() * step).clamp(min, max);
-            if (next - *value).abs() > f32::EPSILON {
+            let fraction = ((self.mouse.0 - track.x) / track.w).clamp(0.0, 1.0);
+            let next = snap(min + fraction * (max - min), min, max, step);
+            if next != *value {
                 *value = next;
                 changed = true;
             }
         }
 
-        let height = painter.measure(text, m.text).1;
-        painter.draw_at(
-            pm,
-            text,
-            rect.x,
-            rect.y + (rect.h - height) / 2.0,
-            m.text,
-            theme.text_dim,
-        );
+        // A value that was typed into the read-out box.
+        if let Some(typed) = self.take_committed(id) {
+            let next = snap(typed, min, max, step);
+            if next != *value {
+                *value = next;
+                changed = true;
+            }
+        }
 
-        panel(
-            pm,
-            Rect::new(track.x, track.y + m.px(4.0), track.w, m.px(6.0)),
-            theme.control,
-        );
-        let ratio = if (max - min).abs() < f32::EPSILON {
-            0.0
-        } else {
-            ((*value - min) / (max - min)).clamp(0.0, 1.0)
-        };
-        panel(
-            pm,
-            Rect::new(track.x, track.y + m.px(4.0), track.w * ratio, m.px(6.0)),
-            theme.accent,
-        );
-        let knob = Rect::new(
-            track.x + track.w * ratio - m.px(4.0),
-            track.y,
-            m.px(8.0),
-            m.px(14.0),
-        );
-        panel(
-            pm,
-            knob,
-            if self.hovered(track) || self.active == Some(id) {
-                theme.control_hot
-            } else {
-                theme.control
-            },
-        );
+        // The bar, with the filled part showing where the value sits.
+        let hot = self.active == Some(id) || track.contains(self.mouse);
+        panel(pm, track, if hot { t.control_hot } else { t.control });
+        let knob = m.px(8.0);
+        let filled = (track.w - knob) * ((*value - min) / (max - min)).clamp(0.0, 1.0);
+        if filled > 1.0 {
+            fill_rect(pm, track.x, track.y, filled, track.h, t.accent);
+        }
 
-        let shown = display(*value);
-        let shown_height = painter.measure(&shown, m.small).1;
-        painter.draw_at(
-            pm,
-            &shown,
-            track.right() + m.px(8.0),
-            rect.y + (rect.h - shown_height) / 2.0,
-            m.small,
-            theme.text,
-        );
+        let text = display(*value);
+        let editing = self.value_box(pm, id, value_rect, &text, m, painter);
+
+        if self.clicked_in(value_rect) && !editing {
+            self.begin_edit(id, text);
+        }
 
         changed
     }
+}
+
+/// Rounds a value to the nearest step and keeps it inside the range.
+fn snap(value: f32, min: f32, max: f32, step: f32) -> f32 {
+    let snapped = if step > 0.0 {
+        (value / step).round() * step
+    } else {
+        value
+    };
+    snapped.clamp(min, max)
 }
 
 pub fn panel(pm: &mut Pixmap, rect: Rect, color: Color) {
@@ -412,54 +561,6 @@ pub fn button(
     );
     label_centered(pm, text, rect, m.text, theme().text, painter);
     ui.clicked_in(rect)
-}
-
-/// Single-line text field: clicking inside takes focus, clicking elsewhere
-/// releases it (the caller commits on release). `text` is edited by the caller
-/// through the keyboard events it receives, this only draws and tracks focus.
-pub fn input(
-    ui: &mut Ui,
-    pm: &mut Pixmap,
-    rect: Rect,
-    text: &str,
-    focused: &mut bool,
-    m: Metrics,
-    painter: &mut TextPainter,
-) {
-    let theme = theme();
-    let id = ui.id();
-    if ui.pressed && !rect.contains(ui.mouse) && ui.focused == Some(id) {
-        ui.focused = None;
-    }
-    if ui.clicked_in(rect) {
-        ui.focused = Some(id);
-    }
-    *focused = ui.focused == Some(id);
-
-    panel(
-        pm,
-        rect,
-        if *focused {
-            theme.control_hot
-        } else {
-            theme.control
-        },
-    );
-
-    let (width, height) = painter.measure(text, m.text);
-    let top = rect.y + (rect.h - height) / 2.0;
-    let left = rect.x + m.px(8.0);
-    painter.draw_at(pm, text, left, top, m.text, theme.text);
-    if *focused {
-        fill_rect(
-            pm,
-            (left + width + m.px(2.0)).round(),
-            top,
-            m.px(2.0).max(1.0),
-            height,
-            theme.accent,
-        );
-    }
 }
 
 pub fn toggle(

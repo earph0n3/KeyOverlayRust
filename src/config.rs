@@ -141,6 +141,9 @@ pub fn load(dir: &Path, file_name: &str) -> Result<Config, String> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
 
     let mut entries: HashMap<&str, &str> = HashMap::new();
+    // The file's own order, so keys this build does not manage keep their place
+    // instead of coming back in hash order.
+    let mut ordered: Vec<(&str, &str)> = Vec::new();
     for line in text.lines() {
         let trimmed = line.trim_start();
         // Blank lines and `#`/`;` comments are ignored, so the shipped
@@ -159,6 +162,7 @@ pub fn load(dir: &Path, file_name: &str) -> Result<Config, String> {
                 path.display()
             ));
         }
+        ordered.push((name, value));
     }
 
     let get = |name: &str| -> Result<&str, String> {
@@ -224,7 +228,7 @@ pub fn load(dir: &Path, file_name: &str) -> Result<Config, String> {
     };
 
     Ok(Config {
-        extras: unmanaged(&entries, &config),
+        extras: unmanaged(&ordered, &config),
         ..config
     })
 }
@@ -318,14 +322,12 @@ fn managed_names(config: &Config) -> Vec<String> {
     names
 }
 
-fn unmanaged(entries: &HashMap<&str, &str>, config: &Config) -> Vec<(String, String)> {
+/// Config lines this build does not manage, in the order the file has them.
+fn unmanaged(entries: &[(&str, &str)], config: &Config) -> Vec<(String, String)> {
     let managed = managed_names(config);
     entries
         .iter()
-        .filter(|entry| {
-            let name: &str = entry.0;
-            !managed.iter().any(|managed| managed.as_str() == name)
-        })
+        .filter(|(name, _)| !managed.iter().any(|managed| managed == name))
         // `key5`/`displayKey5` left over from a larger key set would collide
         // with keys added later, so they are dropped rather than kept.
         .filter(|(name, _)| !is_indexed_key(name))

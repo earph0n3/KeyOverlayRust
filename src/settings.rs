@@ -48,12 +48,7 @@ pub struct Settings {
     color_tab: usize,
     /// Effective UI scale (display DPI times the user's zoom).
     scale: f32,
-    /// Text shown in the UI scale field, and whether it is being edited.
-    scale_text: String,
-    scale_editing: bool,
-    /// True until the first keystroke, so typing replaces the value instead of
-    /// appending to it.
-    scale_fresh: bool,
+
     capture: Option<usize>,
     capture_armed: bool,
     candidates: Vec<(&'static str, u32)>,
@@ -67,9 +62,7 @@ impl Settings {
             ui: Ui::default(),
             painter: fonts.painter()?,
             scale: 1.0,
-            scale_text: String::new(),
-            scale_editing: false,
-            scale_fresh: false,
+
             color_tab: 0,
             capture: None,
             capture_armed: true,
@@ -103,62 +96,9 @@ impl Settings {
         self.scale = scale.clamp(0.5, 4.0);
     }
 
-    /// True while the UI scale field owns the keyboard.
-    pub fn is_editing(&self) -> bool {
-        self.scale_editing
-    }
-
-    pub fn edit_char(&mut self, ch: char) {
-        if !self.scale_editing {
-            return;
-        }
-        let ch = if ch == ',' { '.' } else { ch };
-        if !(ch.is_ascii_digit() || ch == '.') || self.scale_text.len() >= 6 {
-            return;
-        }
-        if self.scale_fresh {
-            self.scale_text.clear();
-            self.scale_fresh = false;
-        }
-        self.scale_text.push(ch);
-    }
-
-    pub fn edit_backspace(&mut self) {
-        if self.scale_editing {
-            self.scale_fresh = false;
-            self.scale_text.pop();
-        }
-    }
-
-    /// Abandons the edit, restoring the value in use.
-    pub fn cancel_edit(&mut self, config: &Config) {
-        if self.scale_editing {
-            self.scale_editing = false;
-            self.scale_text = format!("{:.2}", config.ui_scale);
-        }
-    }
-
-    /// Applies the typed value, clamped to the range the configuration accepts.
-    pub fn commit_edit(&mut self, config: &mut Config) -> bool {
-        self.scale_editing = false;
-        let parsed = self
-            .scale_text
-            .replace(',', ".")
-            .parse::<f32>()
-            .ok()
-            .map(|value| value.clamp(0.5, 4.0));
-        match parsed {
-            Some(value) => {
-                let changed = (value - config.ui_scale).abs() > 0.005;
-                config.ui_scale = value;
-                self.scale_text = format!("{value:.2}");
-                changed
-            }
-            None => {
-                self.scale_text = format!("{:.2}", config.ui_scale);
-                false
-            }
-        }
+    /// The widget layer owns the numeric fields, so keyboard input goes there.
+    pub fn ui_mut(&mut self) -> &mut Ui {
+        &mut self.ui
     }
 
     pub fn on_cursor(&mut self, x: f32, y: f32) {
@@ -275,12 +215,27 @@ impl Settings {
             outcome.close = true;
         }
 
-        // Left column: live preview and actions.
+        // The status message sits above the preview, so nothing below it moves
+        // while it is showing.
+        let status_row = Rect::new(m.px(16.0), m.px(56.0), m.px(268.0), m.px(20.0));
+        if let Some((text, at)) = &self.status
+            && at.elapsed().as_secs() < 5
+        {
+            ui::label(
+                pm,
+                text,
+                status_row,
+                m.small,
+                theme.accent,
+                &mut self.painter,
+            );
+        }
+
         let preview_rect = Rect::new(
             m.px(16.0),
-            m.px(70.0),
+            m.px(82.0),
             m.px(268.0),
-            (height - m.px(242.0)).max(m.px(120.0)),
+            (height - m.px(224.0)).max(m.px(120.0)),
         );
         ui::panel(pm, preview_rect, theme.panel);
         ui::label(
@@ -308,8 +263,8 @@ impl Settings {
             m,
         );
 
-        // Actions, the status line and the interface rows are stacked with a
-        // cursor, so a row can never drift into the next one.
+        // Actions and the interface rows are stacked with a cursor, so a row can
+        // never drift into the next one.
         let mut y = preview_rect.bottom() + m.px(14.0);
         if ui::button(
             &mut self.ui,
@@ -331,23 +286,6 @@ impl Settings {
         }
         y += m.px(38.0);
 
-        // The status row keeps its space, so the message cannot land on the
-        // rows below it while it is showing.
-        let status_row = Rect::new(m.px(16.0), y, m.px(268.0), m.px(20.0));
-        if let Some((text, at)) = &self.status
-            && at.elapsed().as_secs() < 5
-        {
-            ui::label(
-                pm,
-                text,
-                status_row,
-                m.small,
-                theme.accent,
-                &mut self.painter,
-            );
-        }
-        y += m.px(30.0);
-
         ui::label(
             pm,
             t.section_interface,
@@ -367,29 +305,14 @@ impl Settings {
             theme.text_dim,
             &mut self.painter,
         );
-        let editing_before = self.scale_editing;
-        if self.scale_text.is_empty() {
-            self.scale_text = format!("{:.2}", config.ui_scale);
-        }
-        let mut focused = self.scale_editing;
-        ui::input(
-            &mut self.ui,
-            pm,
-            Rect::new(row.x + m.px(104.0), row.y, m.px(84.0), row.h),
-            &self.scale_text,
-            &mut focused,
-            m,
-            &mut self.painter,
-        );
-        if focused && !editing_before {
-            // clicked in: show the value in use, replaced by the first keystroke
-            self.scale_text = format!("{:.2}", config.ui_scale);
-            self.scale_fresh = true;
-        }
-        self.scale_editing = focused;
-        if editing_before && !focused {
-            // clicked away: keep what was typed, if it parses
-            outcome.changed |= self.commit_edit(config);
+        let field = Rect::new(row.x + m.px(104.0), row.y, m.px(100.0), row.h);
+        let shown = format!("{:.2}", config.ui_scale);
+        if let Some(typed) = self.ui.field(pm, field, &shown, m, &mut self.painter) {
+            let value = typed.clamp(0.5, 4.0);
+            if (value - config.ui_scale).abs() > 0.005 {
+                config.ui_scale = value;
+                outcome.changed = true;
+            }
         }
         if ui::button(
             &mut self.ui,
@@ -399,8 +322,6 @@ impl Settings {
             &mut self.painter,
         ) {
             config.ui_scale = 1.0;
-            self.scale_text = "1.00".to_string();
-            self.scale_editing = false;
             outcome.changed = true;
         }
         y = row.bottom() + m.px(6.0);

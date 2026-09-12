@@ -38,7 +38,7 @@ use tiny_skia::Pixmap;
 use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETWORKAREA, SystemParametersInfoW};
 use winit::application::ApplicationHandler;
-use winit::dpi::PhysicalSize;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId, WindowLevel};
@@ -66,12 +66,34 @@ fn ui_scale(config: &Config, monitor_scale: f32) -> f32 {
     (UI_BASE_SCALE * monitor_scale * config.ui_scale).clamp(0.5, 4.0)
 }
 
-/// Height of the primary monitor's work area, so the settings window can never
-/// grow taller than the screen.
-fn work_area_height() -> Option<u32> {
+/// The primary monitor's work area, so the settings window stays on screen: it
+/// is centered when created and never grows past the desktop.
+fn work_area() -> Option<RECT> {
     let mut rect: RECT = unsafe { std::mem::zeroed() };
     let ok = unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, (&raw mut rect).cast(), 0) };
-    (ok != 0).then(|| (rect.bottom - rect.top).max(0) as u32)
+    (ok != 0).then_some(rect)
+}
+
+fn work_area_size() -> (u32, u32) {
+    work_area()
+        .map(|rect| {
+            (
+                (rect.right - rect.left).max(0) as u32,
+                (rect.bottom - rect.top).max(0) as u32,
+            )
+        })
+        .unwrap_or((u32::MAX, u32::MAX))
+}
+
+/// Puts a freshly created window in the middle of the work area.
+fn center_on_screen(window: &Window) {
+    let Some(work) = work_area() else {
+        return;
+    };
+    let size = window.outer_size();
+    let x = work.left + ((work.right - work.left - size.width as i32) / 2).max(0);
+    let y = work.top + ((work.bottom - work.top - size.height as i32) / 2).max(0);
+    window.set_outer_position(PhysicalPosition::new(x, y));
 }
 
 /// Font bytes shared by both windows. The embedded Consolas has no CJK glyphs,
@@ -347,14 +369,12 @@ impl App {
                 .map(|monitor| monitor.scale_factor() as f32)
                 .unwrap_or(1.0);
             let scale = ui_scale(&self.overlay.config, monitor_scale);
-            let limit = work_area_height().unwrap_or(u32::MAX);
-            let wanted_height = (SETTINGS_SIZE.1 as f32 * scale) as u32;
+            let (limit_width, limit_height) = work_area_size();
+            let wanted_width = ((SETTINGS_SIZE.0 as f32 * scale) as u32).min(limit_width);
+            let wanted_height = ((SETTINGS_SIZE.1 as f32 * scale) as u32).min(limit_height);
             let attributes = Window::default_attributes()
                 .with_title(lang::text(self.overlay.config.language).title)
-                .with_inner_size(PhysicalSize::new(
-                    (SETTINGS_SIZE.0 as f32 * scale) as u32,
-                    wanted_height.min(limit),
-                ))
+                .with_inner_size(PhysicalSize::new(wanted_width, wanted_height))
                 .with_min_inner_size(PhysicalSize::new(
                     (760.0 * scale) as u32,
                     (560.0 * scale) as u32,
@@ -384,6 +404,7 @@ impl App {
             }
             self.settings_pixmap = Pixmap::new(size.width, size.height);
             self.settings.rescan(&self.executable_dir.join("Resources"));
+            center_on_screen(&window);
             self.settings_scale = ui_scale(&self.overlay.config, window.scale_factor() as f32);
             self.settings.set_scale(self.settings_scale);
             self.settings_window = Some(window);
@@ -493,11 +514,11 @@ impl App {
         let size = window.inner_size();
         let required_width = (SETTINGS_SIZE.0 as f32 * scale) as u32;
         if outcome.needed_height > size.height as f32 || scale_changed {
-            // Never taller than the work area: the content clips instead of
-            // running off the bottom of the screen.
-            let limit = work_area_height().unwrap_or(u32::MAX);
-            let height = (outcome.needed_height.ceil() as u32).min(limit);
-            let width = size.width.max(required_width);
+            // Never larger than the work area: the content clips instead of
+            // running off the edge of the screen.
+            let (limit_width, limit_height) = work_area_size();
+            let height = (outcome.needed_height.ceil() as u32).min(limit_height);
+            let width = size.width.max(required_width).min(limit_width);
             let _ = window.request_inner_size(PhysicalSize::new(width, height));
             return;
         }
@@ -536,25 +557,22 @@ impl App {
     fn settings_key(&mut self, event: &winit::event::KeyEvent) {
         use winit::keyboard::{Key, NamedKey};
 
-        let editing = self.settings.is_editing();
+        let ui = self.settings.ui_mut();
+        let editing = ui.is_editing();
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => {
                 if editing {
-                    self.settings.cancel_edit(&self.overlay.config);
+                    ui.cancel_edit();
                 } else {
                     self.close_settings();
                 }
             }
-            Key::Named(NamedKey::Enter) if editing => {
-                if self.settings.commit_edit(&mut self.overlay.config) {
-                    self.apply_config();
-                }
-            }
-            Key::Named(NamedKey::Backspace) if editing => self.settings.edit_backspace(),
+            Key::Named(NamedKey::Enter) if editing => ui.end_edit(),
+            Key::Named(NamedKey::Backspace) if editing => ui.backspace(),
             _ if editing => {
                 if let Some(text) = &event.text {
                     for ch in text.chars() {
-                        self.settings.edit_char(ch);
+                        ui.type_char(ch);
                     }
                 }
             }

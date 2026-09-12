@@ -665,7 +665,7 @@ dependencies = [
 
 [[package]]
 name = "keyoverlay"
-version = "1.0.0"
+version = "0.1.0"
 dependencies = [
  "fontdue",
  "image",

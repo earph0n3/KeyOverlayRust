@@ -346,7 +346,8 @@ pub fn label(
     color: Color,
     painter: &mut TextPainter,
 ) {
-    let height = painter.measure(text, size).1;
+    let (width, height) = painter.measure(text, size);
+    warn_if_overflow(text, width, rect);
     painter.draw_at(
         pm,
         text,
@@ -357,6 +358,17 @@ pub fn label(
     );
 }
 
+/// Text is never clipped, so anything wider than its rect draws over whatever
+/// comes next. Debug builds report that on stderr; release builds pay nothing.
+fn warn_if_overflow(text: &str, width: f32, rect: Rect) {
+    if cfg!(debug_assertions) && width > rect.w + 0.5 {
+        eprintln!(
+            "layout: {text:?} is {width:.0}px wide but its rect is {:.0}px",
+            rect.w
+        );
+    }
+}
+
 pub fn label_centered(
     pm: &mut Pixmap,
     text: &str,
@@ -365,6 +377,8 @@ pub fn label_centered(
     color: Color,
     painter: &mut TextPainter,
 ) {
+    let (width, _) = painter.measure(text, size);
+    warn_if_overflow(text, width, rect);
     painter.draw_centered_at(
         pm,
         text,

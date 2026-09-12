@@ -56,10 +56,18 @@ impl Renderer {
         background_image: &str,
         resources_dir: &Path,
     ) -> Result<Self, String> {
-        let background = if background_image.is_empty() {
-            None
-        } else {
-            Some(load_background(&resources_dir.join(background_image))?)
+        // A background image is decoration, so one that moved or was deleted
+        // must not stop the overlay from starting: the settings window lists
+        // the name as missing instead, where it can be changed.
+        let background = match background_image {
+            "" => None,
+            name => match load_background(&resources_dir.join(name)) {
+                Ok(image) => Some(image),
+                Err(message) => {
+                    eprintln!("{message}");
+                    None
+                }
+            },
         };
 
         Ok(Self {

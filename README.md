@@ -145,13 +145,16 @@ Deliberate differences:
   failing with an error.
 - An invalid key name writes `keyErrorMessage.txt` and exits, instead of writing
   the file and then crashing on an index error.
-- Missing configuration values and missing background images write
-  `errorMessage.txt` naming the offending key or path, then exit.
+- Missing configuration values write `errorMessage.txt` naming the offending
+  key, then exit. A background image that cannot be loaded is only reported on
+  stderr and skipped, so a file that moved does not stop the overlay; the
+  settings window shows the name as missing instead, where it can be changed.
 - `+ Add key` in the settings window widens `window_width` by one key width plus
   the spacing that key gets, and `x` gives that room back, so adding keys never
   squeezes the ones already there.
-- The background image is resolved next to the executable, not in the working
-  directory.
+- The background image is resolved next to the executable (in `Resources/`) and
+  drawn 1:1 from the top left corner, so a smaller image leaves the rest of the
+  window in `background_color`. The original looked in the working directory.
 - The font is rasterized as-is: SFML additionally emboldens it, so strokes here
   are about 1px thinner at the default size.
 - Chinese `displayKey` text is drawn (the original had no CJK glyphs at all).

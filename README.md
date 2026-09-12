@@ -78,9 +78,22 @@ Two extra options change that:
 
 | Option | Effect |
 |---|---|
-| `transparentBackground=yes` | Presents through a layered window (`UpdateLayeredWindow`), so the background is really transparent and no chroma key is needed. Works with Display Capture, since the desktop compositor draws it. Whether Window Capture keeps the alpha depends on OBS's capture method. Game Capture only captures the game itself, so no external overlay can be composited into it either way. |
+| `transparentBackground=yes` | Presents through a layered window (`UpdateLayeredWindow`), so the background is really transparent and no chroma key is needed. The fading trails fade into transparency as well. The `a` in `backgroundColor` is what becomes transparent (0 = fully transparent, 1-254 = a see-through panel); the settings window's toggle sets it to 0 for you. Works with Display Capture, since the desktop compositor draws it. Whether Window Capture keeps the alpha depends on OBS's capture method. Game Capture only captures the game itself, so no external overlay can be composited into it either way. |
 | `clickThrough=yes` | The mouse ignores the overlay and clicks reach whatever is behind it. Implies the layered window. While it is on, the overlay cannot be clicked to open the settings - use `Ctrl+Alt+K`. |
 | `alwaysOnTop=yes` | Keeps the overlay above other windows, which matters when it is captured as part of the desktop. |
+
+With a transparent background, Windows hit-tests a layered window per pixel, so
+only the drawn keys and labels can be pressed - a click on an empty part of the
+overlay belongs to whatever is behind it. Dragging works there too (grab a key),
+but the way to reach the settings from an empty area is `Ctrl+Alt+K`.
+
+## Moving the overlay
+
+Press anywhere on the overlay and move to drag it - a transparent overlay has no
+title bar at all, and the opaque one is easier to grab by its body than by the
+title bar above it. Pressing without moving (a click) opens the settings instead.
+With `clickThrough=yes` the overlay receives no mouse input at all, so neither
+works and the position comes from the config file.
 
 ## How it compares to the original
 

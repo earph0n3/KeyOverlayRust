@@ -32,7 +32,8 @@ margin=25
 outlineThickness=5
 fading=yes
 
-# r,g,b,a with 0-255 each
+# r,g,b,a with 0-255 each. The a only matters when transparentBackground=yes,
+# where 0 is a fully transparent background and 1-254 gives a see-through panel
 backgroundColor=0,0,0,255
 keyColor=0,0,0,0
 borderColor=255,255,255,255
@@ -58,6 +59,8 @@ uiScale=1.0
 #   clickThrough          - the mouse ignores the overlay (implies the layered
 #                           window; use Ctrl+Alt+K to reach the settings)
 #   alwaysOnTop           - keep the overlay above other windows
+#   transparentBackground - layered window: the background and the fading
+#                           trails are really transparent, no chroma key needed
 transparentBackground=no
 clickThrough=no
 alwaysOnTop=no

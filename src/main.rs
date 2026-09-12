@@ -41,7 +41,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::window::{Window, WindowId, WindowLevel};
+use winit::window::{Icon, Window, WindowId, WindowLevel};
 
 use config::Config;
 use hotkey::UserEvent;
@@ -55,6 +55,9 @@ use text::TextPainter;
 
 /// Bundled face, so the executable is self-contained.
 const FONT: &[u8] = include_bytes!("../assets/consolab.ttf");
+/// The application icon: also compiled into the executable's resources, so the
+/// file, the taskbar entry and the title bars all show the same mark.
+const ICON: &[u8] = include_bytes!("../assets/icon.png");
 const SETTINGS_SIZE: (u32, u32) = (980, 780);
 /// Base size bump of the settings window: at 100% DPI the original numbers came
 /// out smaller than a normal Windows dialog, so everything is drawn 1.25x and
@@ -287,6 +290,7 @@ impl Overlay {
     fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
         let attributes = Window::default_attributes()
             .with_title("KeyOverlay")
+            .with_window_icon(window_icon())
             .with_inner_size(PhysicalSize::new(
                 self.config.window_width,
                 self.config.window_height,
@@ -329,6 +333,10 @@ struct App {
     settings_open: bool,
     /// Scale the settings window was last laid out with.
     settings_scale: f32,
+    /// Where the left button went down on the overlay, and where the cursor is,
+    /// so a press can become either a drag or a click.
+    overlay_press: Option<(f64, f64)>,
+    overlay_cursor: (f64, f64),
 }
 
 impl App {
@@ -353,6 +361,8 @@ impl App {
             settings_pixmap: None,
             settings_open: false,
             settings_scale: 0.0,
+            overlay_press: None,
+            overlay_cursor: (0.0, 0.0),
         })
     }
 
@@ -374,6 +384,7 @@ impl App {
             let wanted_height = ((SETTINGS_SIZE.1 as f32 * scale) as u32).min(limit_height);
             let attributes = Window::default_attributes()
                 .with_title(lang::text(self.overlay.config.language).title)
+                .with_window_icon(window_icon())
                 .with_inner_size(PhysicalSize::new(wanted_width, wanted_height))
                 .with_min_inner_size(PhysicalSize::new(
                     (760.0 * scale) as u32,
@@ -634,13 +645,34 @@ impl ApplicationHandler<UserEvent> for App {
                     }
                 }
                 WindowEvent::RedrawRequested => self.overlay.present(),
-                // Clicking the overlay is the mouse way into the settings; a
-                // click-through window never receives this.
+                // The whole overlay is a drag handle, because a transparent one
+                // has no title bar at all and a 240px wide window is fiddly to
+                // grab by a 30px strip. Pressing and moving drags the window,
+                // pressing and letting go opens the settings. A click-through
+                // window never receives any of this.
+                WindowEvent::CursorMoved { position, .. } => {
+                    self.overlay_cursor = (position.x, position.y);
+                    if let Some((x, y)) = self.overlay_press
+                        && (position.x - x).abs() + (position.y - y).abs() > 4.0
+                        && let Some(window) = &self.overlay.window
+                    {
+                        self.overlay_press = None;
+                        let _ = window.drag_window();
+                    }
+                }
                 WindowEvent::MouseInput {
                     state: ElementState::Pressed,
                     button: MouseButton::Left,
                     ..
-                } => self.open_settings(event_loop),
+                } => self.overlay_press = Some(self.overlay_cursor),
+                WindowEvent::MouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                    ..
+                } if self.overlay_press.is_some() => {
+                    self.overlay_press = None;
+                    self.open_settings(event_loop);
+                }
                 _ => {}
             }
             return;
@@ -737,6 +769,13 @@ fn main() {
     if let Err(error) = event_loop.run_app(&mut app) {
         app.fatal(&format!("Event loop error: {error}"));
     }
+}
+
+/// Decoded once per window; `winit` takes it as RGBA pixels.
+fn window_icon() -> Option<Icon> {
+    let image = image::load_from_memory(ICON).ok()?.to_rgba8();
+    let (width, height) = image.dimensions();
+    Icon::from_rgba(image.into_raw(), width, height).ok()
 }
 
 fn scene<'a>(

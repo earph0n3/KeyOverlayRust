@@ -10,7 +10,9 @@
 
 use std::path::Path;
 
-use tiny_skia::{Color as SkColor, IntSize, Paint, Pixmap, PixmapPaint, Rect, Transform};
+use tiny_skia::{
+    BlendMode, Color as SkColor, IntSize, Paint, Pixmap, PixmapPaint, Rect, Transform,
+};
 
 use crate::config::Color;
 use crate::layout::Square;
@@ -192,14 +194,27 @@ impl Renderer {
         }
 
         if let Some(fading) = &self.fading {
-            pm.draw_pixmap(
-                0,
-                0,
-                fading.as_ref(),
-                &PixmapPaint::default(),
-                Transform::identity(),
-                None,
-            );
+            // The trail fades the bars into the background colour, like the
+            // original. A layered window has no background colour to fade
+            // into, so there the trail takes alpha away instead - the same
+            // fade, expressed with per-pixel alpha - and a see-through colour
+            // (alpha 1..254) trims its opacity.
+            let (opacity, blend_mode) = if scene.opaque_background {
+                (1.0, BlendMode::SourceOver)
+            } else if scene.background_color.a == 0 {
+                (1.0, BlendMode::DestinationOut)
+            } else {
+                (
+                    scene.background_color.a as f32 / 255.0,
+                    BlendMode::SourceOver,
+                )
+            };
+            let paint = PixmapPaint {
+                opacity,
+                blend_mode,
+                ..PixmapPaint::default()
+            };
+            pm.draw_pixmap(0, 0, fading.as_ref(), &paint, Transform::identity(), None);
         }
     }
 }

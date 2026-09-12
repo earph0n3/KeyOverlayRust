@@ -834,14 +834,24 @@ impl Settings {
         let mut y = inner.y;
         let mut changed = false;
 
-        changed |= ui::toggle(
+        if ui::toggle(
             &mut self.ui,
             pm,
             t.transparent,
             row_rect(inner, &mut y, m),
             &mut config.transparent_background,
             &mut self.painter,
-        );
+        ) {
+            // A layered window with an opaque colour would look just like the
+            // plain one, so the toggle also makes the background see-through.
+            // The alpha can still be dialled in by hand for a translucent panel.
+            config.background_color.a = if config.transparent_background {
+                0
+            } else {
+                255
+            };
+            changed = true;
+        }
         changed |= ui::toggle(
             &mut self.ui,
             pm,

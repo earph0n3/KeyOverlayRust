@@ -18,6 +18,10 @@ use std::path::{Path, PathBuf};
 
 use crate::layout;
 
+/// The commented template that ships inside the executable, so a lone
+/// `keyoverlay.exe` can create its own configuration on first run.
+const TEMPLATE: &str = include_str!("../config.txt");
+
 use crate::lang::Language;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,11 +166,20 @@ impl Config {
 
 pub fn load(dir: &Path, file_name: &str) -> Result<Config, String> {
     let path = resolve(dir, file_name);
-    let bytes =
-        std::fs::read(&path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        // First run, or the file was deleted: leave the template behind so
+        // there is something to edit, and carry on with it.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::write(&path, TEMPLATE)
+                .map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+            TEMPLATE.as_bytes().to_vec()
+        }
+        Err(error) => return Err(format!("Could not read {}: {error}", path.display())),
+    };
     let text = String::from_utf8(bytes)
         .map_err(|e| format!("{} is not valid UTF-8: {e}", path.display()))?;
-    // config.txt ships with a UTF-8 BOM.
+    // A config.txt copied from the original has a UTF-8 BOM.
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
 
     let mut entries: HashMap<&str, &str> = HashMap::new();
@@ -573,6 +586,29 @@ mod tests {
             1.0,
         );
         squares[1].x - squares[0].x
+    }
+
+    #[test]
+    fn a_missing_config_is_created_from_the_shipped_template() {
+        let dir = scratch("first-run");
+        // A name that cannot exist in the working directory, so the lookup
+        // lands on the path next to the executable.
+        let file = format!("first-run-{}.txt", std::process::id());
+
+        let config = load(&dir, &file).unwrap();
+
+        let written = std::fs::read_to_string(dir.join(&file)).unwrap();
+        assert!(
+            written.lines().any(|line| line.starts_with('#')),
+            "the file created on first run has nothing to explain it: {written}"
+        );
+        // and the next start reads back what this one used
+        let reloaded = load(&dir, &file).unwrap();
+        assert_eq!(reloaded.key_amount, config.key_amount);
+        assert_eq!(reloaded.window_width, config.window_width);
+        assert_eq!(reloaded.key_size, config.key_size);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

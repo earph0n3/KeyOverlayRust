@@ -14,8 +14,13 @@ cargo build --release
 target/release/keyoverlay.exe
 ```
 
-`config.txt` ships with comments explaining every option, and the same file can
-be edited in the settings window. It is looked up next to the executable first
+That executable is the whole program - the console font and the config template
+are compiled into it - so it is the only file you have to copy. On the first run
+there is no `config.txt` yet, so it writes the commented template next to itself
+and starts with those defaults.
+
+`config.txt` documents every option, and the same file can be edited in the
+settings window. It is looked up next to the executable first
 (as it is shipped, and as the release archive unpacks it) and then in the working
 directory, so `cargo run` and `target/release/keyoverlay.exe` both find the file
 in the project root. A path given as the first argument is resolved the same way.
@@ -89,6 +94,8 @@ Deliberate differences:
 
 - `keyAmount=1` divided by zero in the original (nothing was drawn); the single
   key is centered here.
+- A missing `config.txt` is created from the template on startup instead of
+  failing with an error.
 - An invalid key name writes `keyErrorMessage.txt` and exits, instead of writing
   the file and then crashing on an index error.
 - Missing configuration values and missing background images write
